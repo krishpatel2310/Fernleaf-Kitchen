@@ -806,4 +806,58 @@ Calculated server-side relative to current time ($T_{now}$) and `plannedKitchenR
   - Creates or updates `DeliveryRecord`.
   - Repeated delivered requests are rejected with 409 Conflict.
 
+## 30. Phase 9: Billing & Invoicing Decisions
+
+### 30.1 Billing Model & Invariants
+- **Confirmed Orders Are Owed**: In accordance with the assignment specification, every `CONFIRMED` order is owed in full by its company. Order eligibility for billing is strictly based on confirmed order lifecycle status and absence of an existing invoice relationship, independent of kitchen or dispatch completion.
+- **Internal Invoicing**: Confirmed uninvoiced orders can be grouped into an internal corporate invoice for their company.
+- **One-to-One Order Invoicing**: An order can belong to at most one invoice. This invariant is enforced by a `@unique` constraint on `InvoiceOrder.orderId` in the database.
+- **Immutable Financial Snapshot**: When an invoice is created, it captures an immutable financial snapshot of each order's billable total at that exact moment (`InvoiceOrder.invoicedAmountCents = order.totalCents`).
+- **Invoice Total Invariant**:
+  $$\text{invoice.totalCents} = \sum_{i} \text{invoiceOrder}_i\text{.invoicedAmountCents}$$
+  The invoice total is calculated exclusively by summing the historical snapshot amounts in integer minor units (cents).
+
+### 30.2 Post-Invoice Order Changes & Mismatch Surfacing
+- In corporate meal delivery, confirmed orders may occasionally undergo administrative adjustments, line item modifications, or price overrides after an invoice has already been issued.
+- **Invariant**: An already-issued invoice is **never** silently rewritten or automatically mutated when the underlying order changes later.
+- When reading invoice details or invoice listings, the billing service dynamically evaluates whether:
+  $$\text{currentOrderTotalCents} \neq \text{invoicedAmountCents}$$
+- If a discrepancy exists, the billing domain surfaces:
+  - `invoicedAmountCents`: The historical captured snapshot amount.
+  - `currentOrderTotalCents`: The current mutated order total.
+  - `hasAmountMismatch: true`: Explicit boolean indicator of financial divergence.
+  - `amountDifferenceCents`: The exact signed difference ($\text{current} - \text{invoiced}$).
+  - `adjustmentRequired: true`: Flags the order entry for administrative attention.
+  - `invoice.hasAdjustments: true`: Surfaces invoice-level awareness of required billing reconciliation.
+  - `invoice.currentOrdersTotalCents` and `invoice.totalAdjustmentDifferenceCents`: Aggregate financial divergence metrics.
+- Full credit notes, debit notes, or double-entry adjustment ledgers are intentionally outside the assignment scope.
+
+### 30.3 Post-Invoice Order Cancellation
+- **Preservation of Obligation**: If a confirmed order is cancelled after having been invoiced, it is **not** silently removed from the invoice, nor is the `InvoiceOrder` relation pruned.
+- The invoice retains its captured snapshot amount and total.
+- The billing view exposes the cancellation transparently:
+  - `isOrderCancelled: true`
+  - `adjustmentRequired: true`
+- No automatic credit is manufactured; internal invoices record what was billed.
+
+### 30.4 Concurrency & Double-Invoicing Protection
+- Application-level checking (`if (!order.invoiceEntry)`) is vulnerable to race conditions if multiple administrators attempt to invoice the same confirmed orders simultaneously.
+- Final protection is established at the database layer via PostgreSQL's `@unique` constraint on `InvoiceOrder.orderId`.
+- Both invoice creation and invoice order insertion execute within an atomic Prisma database transaction.
+- If a concurrent request loses the race, PostgreSQL raises a unique constraint violation (`P2002`), which `BillingService` catches and translates to a clean HTTP 409 Conflict exception.
+
+### 30.5 Money Representation
+- All monetary amounts across the billing domain (`totalCents`, `invoicedAmountCents`, `currentOrderTotalCents`, `amountDifferenceCents`) are strictly represented in integer cents (minor currency units).
+- Floating-point representations, `parseFloat`, or non-integer arithmetic are strictly prohibited.
+
+### 30.6 Authorization & Permissions
+- Billing access is governed strictly by server-side capability permissions:
+  - `billing.read`: Required for `GET /api/billing/invoices`, `GET /api/billing/invoices/:id`, `GET /api/billing/uninvoiced-orders`.
+  - `billing.manage`: Required for `POST /api/billing/invoices` and `POST /api/billing/invoices/:id/mark-paid`.
+- Role capabilities are configured in the database:
+  - `ADMIN` possesses both `billing.read` and `billing.manage`.
+  - `KITCHEN`, `DISPATCH`, and `DRIVER` roles have no billing permissions and are rejected with 403 Forbidden.
+  - Unauthenticated requests are rejected with 401 Unauthorized.
+
+
 

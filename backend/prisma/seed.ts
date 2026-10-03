@@ -7,6 +7,7 @@ import {
   OrderEventType,
   KitchenUnitStatus,
   DropStatus,
+  InvoiceStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
@@ -2122,9 +2123,311 @@ export async function main() {
         { type: OrderEventType.DELIVERED, occurredAt: new Date(Date.now() - 30 * 60 * 1000) },
       ],
     },
+
+    // 16. Phase 9: Confirmed uninvoiced order 1 (Summit, Ananya)
+    {
+      orderNumber: 'FK-2026-B001',
+      employeeId: empAnanya!.id,
+      companyId: summitComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 780,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1500,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 780,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 1500,
+          quantity: 1,
+          lineTotalCents: 1500,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 1500,
+              combinationTotalCents: 1500,
+              unitStatus: KitchenUnitStatus.NOT_STARTED,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+      ],
+    },
+
+    // 17. Phase 9: Confirmed uninvoiced order 2 (Summit, Vikram)
+    {
+      orderNumber: 'FK-2026-B002',
+      employeeId: empVikram!.id,
+      companyId: summitComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 780,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 2500,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 780,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 2500,
+          quantity: 1,
+          lineTotalCents: 2500,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 2500,
+              combinationTotalCents: 2500,
+              unitStatus: KitchenUnitStatus.NOT_STARTED,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+      ],
+    },
+
+    // 18. Phase 9: Confirmed order 3 for Unpaid Invoice (Apex, Rajesh)
+    {
+      orderNumber: 'FK-2026-B003',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 720,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1800,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 36 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 720,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 1800,
+          quantity: 1,
+          lineTotalCents: 1800,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 1800,
+              combinationTotalCents: 1800,
+              unitStatus: KitchenUnitStatus.DONE,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 36 * 3600 * 1000) },
+      ],
+    },
+
+    // 19. Phase 9: Confirmed order 4 for Unpaid Invoice (Apex, Priya)
+    {
+      orderNumber: 'FK-2026-B004',
+      employeeId: empPriya!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 720,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 2200,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 36 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 720,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 2200,
+          quantity: 1,
+          lineTotalCents: 2200,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 2200,
+              combinationTotalCents: 2200,
+              unitStatus: KitchenUnitStatus.DONE,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 36 * 3600 * 1000) },
+      ],
+    },
+
+    // 20. Phase 9: Confirmed order 5 for Paid Invoice (Verdant, Siddharth)
+    {
+      orderNumber: 'FK-2026-B005',
+      employeeId: empSiddharth!.id,
+      companyId: verdantComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      packagingTypeId: pkgBio,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 3200,
+      placedAt: new Date(Date.now() - 72 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 60 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrVerdant.id,
+        addressLabelSnapshot: addrVerdant.label,
+        addressLine1Snapshot: addrVerdant.addressLine1,
+        addressLine2Snapshot: addrVerdant.addressLine2,
+        citySnapshot: addrVerdant.city,
+        stateSnapshot: addrVerdant.state,
+        postalCodeSnapshot: addrVerdant.postalCode,
+        deliveryTimeMinutes: 840,
+        packagingNameSnapshot: 'Biodegradable Meal Tray',
+        deliveryInstructionsSnapshot: verdantComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBrownie.id,
+          dishNameSnapshot: dishBrownie.name,
+          dishSkuSnapshot: dishBrownie.sku,
+          dishUnitPriceCents: 3200,
+          quantity: 1,
+          lineTotalCents: 3200,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 3200,
+              combinationTotalCents: 3200,
+              unitStatus: KitchenUnitStatus.DONE,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 72 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 71 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 60 * 3600 * 1000) },
+      ],
+    },
+
+    // 21. Phase 9: Confirmed order 6 for Mismatch Demo Invoice (Apex, Rajesh)
+    {
+      orderNumber: 'FK-2026-B006',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 720,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1600,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 36 * 3600 * 1000),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 720,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 1600,
+          quantity: 1,
+          lineTotalCents: 1600,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 1600,
+              combinationTotalCents: 1600,
+              unitStatus: KitchenUnitStatus.DONE,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 36 * 3600 * 1000) },
+      ],
+    },
   ];
 
-  console.log('Cleaning up existing drops and delivery records to preserve idempotency...');
+  console.log('Cleaning up existing invoices, drops, and delivery records to preserve idempotency...');
+  await prisma.invoiceOrder.deleteMany({});
+  await prisma.invoice.deleteMany({});
   await prisma.deliveryRecord.deleteMany({});
   await prisma.dropOrder.deleteMany({});
   await prisma.drop.deleteMany({});
@@ -2370,6 +2673,79 @@ export async function main() {
     },
   });
   console.log(`  ✓ Drop 4 (Delivered with proof): ${drop4.id} [${drop4.status}] - Driver: ${driverUser.email}`);
+
+  // 11. Seed Realistic Invoices for Phase 9 Billing
+  console.log('Seeding Phase 9 invoices, invoice orders, and financial snapshots...');
+
+  const orderB001 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B001' } });
+  const orderB002 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B002' } });
+  const orderB003 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B003' } });
+  const orderB004 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B004' } });
+  const orderB005 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B005' } });
+  const orderB006 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-B006' } });
+
+  // 1. Unpaid Invoice (INV-2026-0001) for Apex Technologies Ltd with multiple confirmed orders
+  const inv1TotalCents = (orderB003?.totalCents || 1800) + (orderB004?.totalCents || 2200);
+  const inv1 = await prisma.invoice.create({
+    data: {
+      invoiceNumber: 'INV-2026-0001',
+      companyId: apexComp.id,
+      status: InvoiceStatus.ISSUED,
+      totalCents: inv1TotalCents,
+      notes: 'Weekly corporate meal program invoice',
+      orders: {
+        create: [
+          { orderId: orderB003!.id, invoicedAmountCents: orderB003!.totalCents },
+          { orderId: orderB004!.id, invoicedAmountCents: orderB004!.totalCents },
+        ],
+      },
+    },
+  });
+  console.log(`  ✓ Invoice 1 (Unpaid, Multi-order): ${inv1.invoiceNumber} [${inv1.status}] - Total: ${inv1.totalCents}¢`);
+
+  // 2. Paid Invoice (INV-2026-0002) for Verdant Eco Systems
+  const inv2 = await prisma.invoice.create({
+    data: {
+      invoiceNumber: 'INV-2026-0002',
+      companyId: verdantComp.id,
+      status: InvoiceStatus.PAID,
+      totalCents: orderB005!.totalCents,
+      paidAt: new Date(Date.now() - 24 * 3600 * 1000),
+      notes: 'Corporate catering invoice - Paid via NEFT bank transfer',
+      orders: {
+        create: [
+          { orderId: orderB005!.id, invoicedAmountCents: orderB005!.totalCents },
+        ],
+      },
+    },
+  });
+  console.log(`  ✓ Invoice 2 (Paid): ${inv2.invoiceNumber} [${inv2.status}] - Total: ${inv2.totalCents}¢ (Paid at: ${inv2.paidAt})`);
+
+  // 3. Invoice with Mismatch (INV-2026-0003) for Apex Technologies Ltd
+  // Invoiced at original amount (1600¢), then order total was updated later to 2000¢
+  const inv3 = await prisma.invoice.create({
+    data: {
+      invoiceNumber: 'INV-2026-0003',
+      companyId: apexComp.id,
+      status: InvoiceStatus.ISSUED,
+      totalCents: 1600,
+      notes: 'Invoice created before admin line addition override',
+      orders: {
+        create: [
+          { orderId: orderB006!.id, invoicedAmountCents: 1600 },
+        ],
+      },
+    },
+  });
+  // Mutate orderB006's totalCents to 2000 to simulate post-invoice admin line override
+  await prisma.order.update({
+    where: { id: orderB006!.id },
+    data: { totalCents: 2000 },
+  });
+  console.log(`  ✓ Invoice 3 (Mismatch Demonstration): ${inv3.invoiceNumber} [${inv3.status}] - Invoiced: 1600¢ vs Current Order: 2000¢ (Adjustment required)`);
+
+  // Summit Health Innovations intentionally has confirmed uninvoiced orders: orderB001, orderB002
+  console.log(`  ✓ Confirmed Uninvoiced Orders: ${orderB001!.orderNumber} (${orderB001!.totalCents}¢), ${orderB002!.orderNumber} (${orderB002!.totalCents}¢) for ${summitComp.name}`);
 
   console.log('✅ Seed completed successfully.');
 }
