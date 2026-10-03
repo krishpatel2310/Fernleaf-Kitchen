@@ -647,3 +647,88 @@ To insulate historical financial, operational, and billing records from future c
 - Uninvoiced orders are orders in `CONFIRMED` or `DELIVERED` status without an associated `InvoiceOrder` entry.
 - Filter supported on `GET /api/orders?isInvoiced=true|false`. Direct billing and invoice generation are strictly deferred to Phase 10.
 
+## 28. Phase 7 Decisions — Kitchen Operations
+
+### 28.1 OrderCombination → KitchenUnit Invariant
+- **Strict 1:1 Invariant**: Exactly one `KitchenUnit` corresponds to one `OrderCombination`, enforced by the unique constraint on `KitchenUnit.orderCombinationId`.
+- **Unit Quantity**: Reflects the `OrderCombination.quantity`. Distinct combinations of the same dish on an order line produce separate kitchen units; Phase 6 normalizes identical combinations into one.
+- **Confirmed Orders Only**: Kitchen units are created exclusively for orders in `CONFIRMED` status. Orders in `DRAFT`, `PLACED`, `CANCELLED`, or `REJECTED` status never create or expose active kitchen work.
+- **Idempotent Provisioning**: When an order transitions to `CONFIRMED` (via cutoff processing) or when the kitchen board is queried, `KitchenService.ensureKitchenUnitsForOrder` ensures all combinations have their corresponding `KitchenUnit` without creating duplicates or mutating existing units.
+
+### 28.2 KitchenUnit Lifecycle & Concurrency Strategy
+- **Lifecycle**: `NOT_STARTED` $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `DONE`.
+- **State Invariants**:
+  - A unit cannot start twice, finish twice, or transition backward.
+  - Once `DONE`, a unit cannot be modified or re-finished.
+- **Database Concurrency Control**:
+  - State transitions utilize atomic conditional updates (`prisma.kitchenUnit.updateMany({ where: { id, status: expectedCurrentStatus }, data: ... })`).
+  - If concurrent requests attempt to start or finish the same unit simultaneously, exactly one request succeeds (`count === 1`), while racing requests receive `count === 0` and fail cleanly with `409 Conflict`.
+  - Does not rely solely on application-level checks.
+
+### 28.3 Finish-Without-Start Behavior
+- Per assignment requirements, finishing a `NOT_STARTED` unit without prior start is explicitly supported.
+- When finishing a `NOT_STARTED` unit:
+  - `startedAt` is atomically set to the current timestamp (`now`).
+  - `completedAt` is atomically set to the current timestamp (`now`).
+  - Status transitions directly to `DONE`.
+  - If `order.kitchenStartedAt` is currently null, it is also set to `now`.
+
+### 28.4 Order `kitchenStartedAt` Semantics
+- `order.kitchenStartedAt` records the timestamp when the first kitchen unit of a confirmed order transitions out of `NOT_STARTED`.
+- **Concurrency Safe**: Set using `prisma.order.updateMany({ where: { id: orderId, kitchenStartedAt: null }, data: { kitchenStartedAt: now } })`.
+- Subsequent unit starts for the same order do not overwrite or alter the existing `kitchenStartedAt`.
+- Emits a single `KITCHEN_STARTED` timeline event on the order.
+
+### 28.5 Order `kitchenReadyAt` Semantics
+- `order.kitchenReadyAt` is set **only when all kitchen units** for the confirmed order reach `DONE` status.
+- **Rules**:
+  - 0 units done $\rightarrow$ `kitchenReadyAt` is `null`.
+  - Some units done $\rightarrow$ `kitchenReadyAt` is `null`.
+  - All units done $\rightarrow$ `kitchenReadyAt` is set to the completion timestamp (`now`).
+- Evaluated transactionally with unit completion via `prisma.kitchenUnit.count({ where: { orderId, status: { not: 'DONE' } } }) === 0`.
+- Concurrency-safe conditional update ensures `kitchenReadyAt` is set once and never overwritten or triggered prematurely.
+- Emits a single `KITCHEN_READY` timeline event on the order.
+
+### 28.6 Planned Timing Formulas
+- Evaluated strictly in the kitchen operational timezone (`Asia/Kolkata`, UTC+05:30).
+- Operational parameters:
+  - `deliveryUtc`: UTC timestamp computed from order `deliveryDate` ($YYYY-MM-DD$) and `deliveryTimeMinutes`.
+  - `companyLeadMinutes`: Resolved from `Company.deliveryMinutesBefore` (default: 60 minutes).
+- **Formulas**:
+  - $\text{plannedDispatchReadyAt} = \text{deliveryUtc} - (\text{companyLeadMinutes} \times 60 \times 1000)$
+  - $\text{plannedKitchenReadyAt} = \text{plannedDispatchReadyAt} - (30 \times 60 \times 1000)$
+- **Plan Recalculation**: If delivery time or address is updated via post-cutoff admin override, `plannedDispatchReadyAt` and `plannedKitchenReadyAt` recalculate dynamically on the kitchen board. Historical actual timestamps (`startedAt`, `completedAt`, `kitchenStartedAt`, `kitchenReadyAt`) are preserved.
+
+### 28.7 Deterministic Late / At-Risk Indicators
+Calculated server-side relative to current time ($T_{now}$) and `plannedKitchenReadyAt`:
+- **`COMPLETED`**: Unit status is `DONE`.
+- **`LATE`**: Unit not done and $T_{now} > \text{plannedKitchenReadyAt}$.
+- **`AT_RISK`**: Unit not done and $T_{now} \ge \text{plannedKitchenReadyAt} - 15 \text{ min}$.
+- **`ON_TRACK`**: Unit not done and $T_{now} < \text{plannedKitchenReadyAt} - 15 \text{ min}$.
+- **Future Orders**: Work scheduled for future dates or later hours is correctly classified as `ON_TRACK` and never marked late prematurely.
+
+### 28.8 Admin Force-Complete Behavior & Idempotency
+- Protected by `kitchen.force_complete` permission.
+- Allowed only on confirmed kitchen orders.
+- Executes within an atomic database transaction:
+  - Incomplete units in `IN_PROGRESS` have `completedAt` set to `now` and status changed to `DONE`.
+  - Incomplete units in `NOT_STARTED` have both `startedAt` and `completedAt` set to `now` and status changed to `DONE`.
+  - Already `DONE` units remain completely untouched.
+  - Sets `order.kitchenStartedAt` (if previously null) and sets `order.kitchenReadyAt = now`.
+  - Emits an operational `ADMIN_OVERRIDE` or `KITCHEN_FORCE_COMPLETED` order event.
+- **Strict Idempotency**: Calling force-complete on an already kitchen-ready order returns immediately as a safe no-op with 0 database mutations, 0 duplicate timeline events, and no timestamp corruption.
+
+### 28.9 Station Assignment & Unassigned Units
+- Units resolve their kitchen station from the dish's configured `Dish.kitchenStationId` and `KitchenStation.name`.
+- If a dish has no configured station, the unit is assigned `kitchenStationId = null` and labeled `"Unassigned"`.
+- The Kitchen Board endpoint supports server-side station filtering via query parameter: `stationId=<id>` or `stationId=unassigned`.
+
+### 28.10 Authorization & Data Scoping
+- Enforces DB-backed permissions via `@RequirePermissions`:
+  - `kitchen.read`: View kitchen board, stations, and unit details.
+  - `kitchen.start`: Start a kitchen unit.
+  - `kitchen.finish`: Finish a kitchen unit.
+  - `kitchen.force_complete`: Admin force-completion of an order's kitchen units.
+- Eliminates hardcoded role name checks (`user.role === 'KITCHEN'`).
+- Scoped response payloads expose operational culinary data (dishes, portions, options, quantities, timings, station, status) while strictly omitting sensitive employee personal data, billing/invoicing details, or driver logistics.
+

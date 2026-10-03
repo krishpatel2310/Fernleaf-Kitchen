@@ -5,9 +5,10 @@ import { CutoffService } from './cutoff.service';
 import { PricingModule } from '../pricing/pricing.module';
 import { MenuModule } from '../menu/menu.module';
 import { CompaniesModule } from '../companies/companies.module';
+import { KitchenModule } from '../kitchen/kitchen.module';
 
 @Module({
-  imports: [PricingModule, MenuModule, CompaniesModule],
+  imports: [PricingModule, MenuModule, CompaniesModule, KitchenModule],
   controllers: [OrdersController],
   providers: [OrdersService, CutoffService],
   exports: [OrdersService, CutoffService],

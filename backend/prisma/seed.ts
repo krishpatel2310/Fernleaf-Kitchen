@@ -1,4 +1,12 @@
-import { PrismaClient, UserStatus, DayOfWeek, Temperature, OrderStatus, OrderEventType } from '@prisma/client';
+import {
+  PrismaClient,
+  UserStatus,
+  DayOfWeek,
+  Temperature,
+  OrderStatus,
+  OrderEventType,
+  KitchenUnitStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -130,6 +138,23 @@ export const SEEDED_ACCOUNTS = [
     role: 'DRIVER',
   },
 ];
+
+function calculatePlannedTimings(
+  deliveryDate: Date,
+  deliveryTimeMinutes: number,
+  deliveryMinutesBefore: number = 60,
+) {
+  const kolkataOffsetMs = 330 * 60 * 1000;
+  const midnightUtcMs = deliveryDate.getTime() - kolkataOffsetMs;
+  const deliveryUtcMs = midnightUtcMs + deliveryTimeMinutes * 60 * 1000;
+  const plannedDispatchReadyAt = new Date(
+    deliveryUtcMs - deliveryMinutesBefore * 60 * 1000,
+  );
+  const plannedKitchenReadyAt = new Date(
+    plannedDispatchReadyAt.getTime() - 30 * 60 * 1000,
+  );
+  return { plannedDispatchReadyAt, plannedKitchenReadyAt };
+}
 
 export async function main() {
   console.log('🌱 Starting Fernleaf Kitchen database seed...');
@@ -368,12 +393,31 @@ export async function main() {
     },
   });
 
+  // 5a. Kitchen Stations
+  console.log('Seeding kitchen stations...');
+  const stationCold = await prisma.kitchenStation.upsert({
+    where: { name: 'Cold Prep & Salads' },
+    update: { isActive: true },
+    create: { name: 'Cold Prep & Salads', isActive: true },
+  });
+  const stationHot = await prisma.kitchenStation.upsert({
+    where: { name: 'Hot Line' },
+    update: { isActive: true },
+    create: { name: 'Hot Line', isActive: true },
+  });
+  const stationBakery = await prisma.kitchenStation.upsert({
+    where: { name: 'Bakery & Desserts' },
+    update: { isActive: true },
+    create: { name: 'Bakery & Desserts', isActive: true },
+  });
+
   const dishSalad = await prisma.dish.upsert({
     where: { sku: 'SKU-SMK-SALAD' },
     update: {
       name: 'Smoked Chicken Salad',
       temperature: Temperature.COLD,
       costPriceCents: 450,
+      kitchenStationId: stationCold.id,
       isActive: true,
     },
     create: {
@@ -382,6 +426,7 @@ export async function main() {
       description: 'Oak-smoked chicken breast over dressed microgreens',
       temperature: Temperature.COLD,
       costPriceCents: 450,
+      kitchenStationId: stationCold.id,
       isActive: true,
     },
   });
@@ -392,6 +437,7 @@ export async function main() {
       name: 'Paneer Tikka Meal Bowl',
       temperature: Temperature.HOT,
       costPriceCents: 380,
+      kitchenStationId: stationHot.id,
       isActive: true,
     },
     create: {
@@ -401,6 +447,27 @@ export async function main() {
         'Char-grilled cottage cheese cubes with cumin brown rice and mint chutney',
       temperature: Temperature.HOT,
       costPriceCents: 380,
+      kitchenStationId: stationHot.id,
+      isActive: true,
+    },
+  });
+
+  const dishBrownie = await prisma.dish.upsert({
+    where: { sku: 'SKU-FUDGE-BRW' },
+    update: {
+      name: 'Warm Fudge Brownie',
+      temperature: Temperature.COLD,
+      costPriceCents: 150,
+      kitchenStationId: null, // explicitly Unassigned station
+      isActive: true,
+    },
+    create: {
+      sku: 'SKU-FUDGE-BRW',
+      name: 'Warm Fudge Brownie',
+      description: 'Decadent dark chocolate fudge brownie square',
+      temperature: Temperature.COLD,
+      costPriceCents: 150,
+      kitchenStationId: null,
       isActive: true,
     },
   });
@@ -419,6 +486,13 @@ export async function main() {
     },
     update: { displayOrder: 1 },
     create: { categoryId: catThali.id, dishId: dishBowl.id, displayOrder: 1 },
+  });
+  await prisma.menuCategoryDish.upsert({
+    where: {
+      categoryId_dishId: { categoryId: catBowls.id, dishId: dishBrownie.id },
+    },
+    update: { displayOrder: 2 },
+    create: { categoryId: catBowls.id, dishId: dishBrownie.id, displayOrder: 2 },
   });
 
   // 5b. Seed Portion Sizes, Option Groups, Options & Prices
@@ -532,6 +606,14 @@ export async function main() {
       where: { dishId_priceTierId: { dishId: dishBowl.id, priceTierId: tierId } },
       update: { priceCents: bowlPrice },
       create: { dishId: dishBowl.id, priceTierId: tierId, priceCents: bowlPrice },
+    });
+
+    // Brownie price: standard 250, gold 200, startup 220
+    const browniePrice = isGold ? 200 : isStartup ? 220 : 250;
+    await prisma.dishPrice.upsert({
+      where: { dishId_priceTierId: { dishId: dishBrownie.id, priceTierId: tierId } },
+      update: { priceCents: browniePrice },
+      create: { dishId: dishBrownie.id, priceTierId: tierId, priceCents: browniePrice },
     });
 
     // Option prices
@@ -1047,6 +1129,22 @@ export async function main() {
   const pkgBento = pkgMap.get('Premium Bento Pack')!;
   const pkgBio = pkgMap.get('Biodegradable Meal Tray')!;
 
+  // Dynamic Kolkata today calendar date
+  const todayKolkataStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const [ty, tm, td] = todayKolkataStr.split('-').map(Number);
+  const todayKolkataDate = new Date(Date.UTC(ty, tm - 1, td, 0, 0, 0, 0));
+
+  const timingsK001 = calculatePlannedTimings(todayKolkataDate, 720, apexComp.deliveryMinutesBefore ?? 60);
+  const timingsK002 = calculatePlannedTimings(todayKolkataDate, 780, summitComp.deliveryMinutesBefore ?? 45);
+  const timingsK003 = calculatePlannedTimings(todayKolkataDate, 1110, verdantComp.deliveryMinutesBefore ?? 60);
+  const timings0002 = calculatePlannedTimings(new Date('2026-10-06T00:00:00.000Z'), 750, apexComp.deliveryMinutesBefore ?? 60);
+  const timings0007 = calculatePlannedTimings(new Date('2026-10-06T00:00:00.000Z'), 750, apexComp.deliveryMinutesBefore ?? 60);
+
   const seedOrders = [
     // 1. DELIVERED order in the past (Apex)
     {
@@ -1121,6 +1219,8 @@ export async function main() {
       totalCents: 2810,
       placedAt: new Date('2026-10-01T11:00:00.000Z'),
       confirmedAt: new Date('2026-10-02T16:00:00.000Z'),
+      plannedDispatchReadyAt: timings0002.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timings0002.plannedKitchenReadyAt,
       delivery: {
         companyAddressId: addrApexHQ.id,
         addressLabelSnapshot: addrApexHQ.label,
@@ -1429,6 +1529,8 @@ export async function main() {
       totalCents: 1580,
       placedAt: new Date('2026-10-01T15:00:00.000Z'),
       confirmedAt: new Date('2026-10-02T16:00:00.000Z'),
+      plannedDispatchReadyAt: timings0007.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timings0007.plannedKitchenReadyAt,
       delivery: {
         companyAddressId: addrApexWhitefield.id, // overridden from HQ to Whitefield
         addressLabelSnapshot: addrApexWhitefield.label,
@@ -1485,6 +1587,227 @@ export async function main() {
         },
       ],
     },
+
+    // 8. Phase 7: CONFIRMED order for TODAY - partially in progress (Summit Health, 12:00 delivery)
+    {
+      orderNumber: 'FK-2026-K001',
+      employeeId: empAnanya!.id,
+      companyId: summitComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 720,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1700,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 35 * 60 * 1000),
+      kitchenReadyAt: null,
+      plannedDispatchReadyAt: timingsK001.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsK001.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 720,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 850,
+          quantity: 1,
+          lineTotalCents: 850,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 850,
+              combinationTotalCents: 850,
+              unitStatus: KitchenUnitStatus.IN_PROGRESS,
+              startedAt: new Date(Date.now() - 35 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 850,
+          quantity: 1,
+          lineTotalCents: 850,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 850,
+              combinationTotalCents: 850,
+              unitStatus: KitchenUnitStatus.NOT_STARTED,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 35 * 60 * 1000) },
+      ],
+    },
+
+    // 9. Phase 7: CONFIRMED order for TODAY - fully kitchen ready (Apex, 13:00 delivery)
+    {
+      orderNumber: 'FK-2026-K002',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 780,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1050,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 60 * 60 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 10 * 60 * 1000),
+      plannedDispatchReadyAt: timingsK002.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsK002.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 780,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 850,
+          quantity: 1,
+          lineTotalCents: 850,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 850,
+              combinationTotalCents: 850,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 60 * 60 * 1000),
+              completedAt: new Date(Date.now() - 20 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+        {
+          dishId: dishBrownie.id,
+          dishNameSnapshot: dishBrownie.name,
+          dishSkuSnapshot: dishBrownie.sku,
+          dishUnitPriceCents: 200,
+          quantity: 1,
+          lineTotalCents: 200,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 200,
+              combinationTotalCents: 200,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 45 * 60 * 1000),
+              completedAt: new Date(Date.now() - 10 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 60 * 60 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 10 * 60 * 1000) },
+      ],
+    },
+
+    // 10. Phase 7: CONFIRMED order for TODAY - not started yet (Verdant, 18:30 delivery)
+    {
+      orderNumber: 'FK-2026-K003',
+      employeeId: empSiddharth!.id,
+      companyId: verdantComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 1110,
+      packagingTypeId: pkgBio,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1020,
+      placedAt: new Date(Date.now() - 48 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      kitchenStartedAt: null,
+      kitchenReadyAt: null,
+      plannedDispatchReadyAt: timingsK003.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsK003.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrVerdant.id,
+        addressLabelSnapshot: addrVerdant.label,
+        addressLine1Snapshot: addrVerdant.addressLine1,
+        addressLine2Snapshot: addrVerdant.addressLine2,
+        citySnapshot: addrVerdant.city,
+        stateSnapshot: addrVerdant.state,
+        postalCodeSnapshot: addrVerdant.postalCode,
+        deliveryTimeMinutes: 1110,
+        packagingNameSnapshot: 'Biodegradable Meal Tray',
+        deliveryInstructionsSnapshot: verdantComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 800,
+          quantity: 1,
+          lineTotalCents: 800,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 800,
+              combinationTotalCents: 800,
+              unitStatus: KitchenUnitStatus.NOT_STARTED,
+              options: [],
+            },
+          ],
+        },
+        {
+          dishId: dishBrownie.id,
+          dishNameSnapshot: dishBrownie.name,
+          dishSkuSnapshot: dishBrownie.sku,
+          dishUnitPriceCents: 220,
+          quantity: 1,
+          lineTotalCents: 220,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 220,
+              combinationTotalCents: 220,
+              unitStatus: KitchenUnitStatus.NOT_STARTED,
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 48 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 47 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+      ],
+    },
   ];
 
   for (const o of seedOrders) {
@@ -1509,6 +1832,10 @@ export async function main() {
         deliveredAt: (o as any).deliveredAt || null,
         cancelledAt: (o as any).cancelledAt || null,
         rejectedAt: (o as any).rejectedAt || null,
+        kitchenStartedAt: (o as any).kitchenStartedAt || null,
+        kitchenReadyAt: (o as any).kitchenReadyAt || null,
+        plannedKitchenReadyAt: (o as any).plannedKitchenReadyAt || null,
+        plannedDispatchReadyAt: (o as any).plannedDispatchReadyAt || null,
         delivery: {
           create: o.delivery,
         },
@@ -1551,6 +1878,50 @@ export async function main() {
         },
       },
     });
+
+    // Provision KitchenUnits for CONFIRMED orders
+    if (createdOrder.status === OrderStatus.CONFIRMED) {
+      const fullOrder = await prisma.order.findUnique({
+        where: { id: createdOrder.id },
+        include: {
+          lines: {
+            include: {
+              dish: true,
+              combinations: true,
+            },
+          },
+        },
+      });
+
+      if (fullOrder) {
+        for (let lIdx = 0; lIdx < fullOrder.lines.length; lIdx++) {
+          const line = fullOrder.lines[lIdx];
+          const seedLine = o.lines[lIdx];
+          for (let cIdx = 0; cIdx < line.combinations.length; cIdx++) {
+            const combo = line.combinations[cIdx];
+            const seedCombo = seedLine?.combinations[cIdx] as any;
+
+            await prisma.kitchenUnit.upsert({
+              where: { orderCombinationId: combo.id },
+              create: {
+                orderId: fullOrder.id,
+                orderCombinationId: combo.id,
+                stationId: line.dish.kitchenStationId ?? null,
+                status: seedCombo?.unitStatus ?? KitchenUnitStatus.NOT_STARTED,
+                startedAt: seedCombo?.startedAt ?? null,
+                completedAt: seedCombo?.completedAt ?? null,
+              },
+              update: {
+                stationId: line.dish.kitchenStationId ?? null,
+                status: seedCombo?.unitStatus ?? KitchenUnitStatus.NOT_STARTED,
+                startedAt: seedCombo?.startedAt ?? null,
+                completedAt: seedCombo?.completedAt ?? null,
+              },
+            });
+          }
+        }
+      }
+    }
 
     console.log(`  ✓ Order: ${createdOrder.orderNumber} [${createdOrder.status}] - ${createdOrder.totalCents}¢`);
   }

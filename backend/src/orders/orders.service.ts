@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { MenuService } from '../menu/menu.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CutoffService } from './cutoff.service';
+import { KitchenService } from '../kitchen/kitchen.service';
 import { OrderEventType, OrderStatus, Prisma } from '@prisma/client';
 import { CreateOrderDto, CreateOrderLineDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -49,6 +51,7 @@ export class OrdersService {
     private readonly menuService: MenuService,
     private readonly companiesService: CompaniesService,
     private readonly cutoffService: CutoffService,
+    @Optional() private readonly kitchenService?: KitchenService,
   ) {}
 
   /**
@@ -1293,6 +1296,9 @@ export class OrdersService {
 
           if (result.count > 0) {
             confirmedCount++;
+            if (this.kitchenService) {
+              await this.kitchenService.ensureKitchenUnitsForOrder(order.id);
+            }
             await this.prisma.orderEvent.create({
               data: {
                 orderId: order.id,
