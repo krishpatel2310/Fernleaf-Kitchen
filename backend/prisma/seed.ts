@@ -1,4 +1,4 @@
-import { PrismaClient, UserStatus, DayOfWeek, Temperature } from '@prisma/client';
+import { PrismaClient, UserStatus, DayOfWeek, Temperature, OrderStatus, OrderEventType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -420,6 +420,142 @@ export async function main() {
     update: { displayOrder: 1 },
     create: { categoryId: catThali.id, dishId: dishBowl.id, displayOrder: 1 },
   });
+
+  // 5b. Seed Portion Sizes, Option Groups, Options & Prices
+  console.log('Seeding portion sizes, option groups, options, and prices...');
+  const portionRegular = await prisma.portionSize.upsert({
+    where: { name: 'Regular' },
+    update: { displayOrder: 1, isActive: true },
+    create: { name: 'Regular', displayOrder: 1, isActive: true },
+  });
+  const portionLarge = await prisma.portionSize.upsert({
+    where: { name: 'Large' },
+    update: { displayOrder: 2, isActive: true },
+    create: { name: 'Large', displayOrder: 2, isActive: true },
+  });
+
+  // Option Group: Dressing Choice (Required, no portions) for Salad
+  const groupDressing = await prisma.optionGroup.upsert({
+    where: { id: 'seed-og-dressing' },
+    update: { name: 'Dressing Choice', isRequired: true, usesPortions: false, isActive: true },
+    create: { id: 'seed-og-dressing', name: 'Dressing Choice', isRequired: true, usesPortions: false, isActive: true },
+  });
+  await prisma.dishOptionGroup.upsert({
+    where: { dishId_optionGroupId: { dishId: dishSalad.id, optionGroupId: groupDressing.id } },
+    update: { displayOrder: 1 },
+    create: { dishId: dishSalad.id, optionGroupId: groupDressing.id, displayOrder: 1 },
+  });
+
+  // Options for Dressing
+  const optHoneyMustard = await prisma.option.upsert({
+    where: { id: 'seed-opt-honey-mustard' },
+    update: { name: 'Honey Mustard', costPriceCents: 40, isActive: true },
+    create: { id: 'seed-opt-honey-mustard', name: 'Honey Mustard', costPriceCents: 40, isActive: true },
+  });
+  const optOliveOil = await prisma.option.upsert({
+    where: { id: 'seed-opt-olive-oil' },
+    update: { name: 'Olive Oil & Lemon', costPriceCents: 35, isActive: true },
+    create: { id: 'seed-opt-olive-oil', name: 'Olive Oil & Lemon', costPriceCents: 35, isActive: true },
+  });
+  await prisma.optionGroupOption.upsert({
+    where: { optionGroupId_optionId: { optionGroupId: groupDressing.id, optionId: optHoneyMustard.id } },
+    update: { displayOrder: 1 },
+    create: { optionGroupId: groupDressing.id, optionId: optHoneyMustard.id, displayOrder: 1 },
+  });
+  await prisma.optionGroupOption.upsert({
+    where: { optionGroupId_optionId: { optionGroupId: groupDressing.id, optionId: optOliveOil.id } },
+    update: { displayOrder: 2 },
+    create: { optionGroupId: groupDressing.id, optionId: optOliveOil.id, displayOrder: 2 },
+  });
+
+  // Option Group: Meal Portion & Addon (Optional, uses portions) for Bowl
+  const groupBowlAddon = await prisma.optionGroup.upsert({
+    where: { id: 'seed-og-bowl-addon' },
+    update: { name: 'Meal Portion & Addon', isRequired: false, usesPortions: true, isActive: true },
+    create: { id: 'seed-og-bowl-addon', name: 'Meal Portion & Addon', isRequired: false, usesPortions: true, isActive: true },
+  });
+  await prisma.dishOptionGroup.upsert({
+    where: { dishId_optionGroupId: { dishId: dishBowl.id, optionGroupId: groupBowlAddon.id } },
+    update: { displayOrder: 1 },
+    create: { dishId: dishBowl.id, optionGroupId: groupBowlAddon.id, displayOrder: 1 },
+  });
+  await prisma.optionGroupPortion.upsert({
+    where: { optionGroupId_portionSizeId: { optionGroupId: groupBowlAddon.id, portionSizeId: portionRegular.id } },
+    update: { displayOrder: 1, extraPriceCents: 0 },
+    create: { optionGroupId: groupBowlAddon.id, portionSizeId: portionRegular.id, displayOrder: 1, extraPriceCents: 0 },
+  });
+  await prisma.optionGroupPortion.upsert({
+    where: { optionGroupId_portionSizeId: { optionGroupId: groupBowlAddon.id, portionSizeId: portionLarge.id } },
+    update: { displayOrder: 2, extraPriceCents: 100 },
+    create: { optionGroupId: groupBowlAddon.id, portionSizeId: portionLarge.id, displayOrder: 2, extraPriceCents: 100 },
+  });
+
+  // Options for Bowl Addon
+  const optExtraPaneer = await prisma.option.upsert({
+    where: { id: 'seed-opt-extra-paneer' },
+    update: { name: 'Extra Roasted Paneer', costPriceCents: 60, isActive: true },
+    create: { id: 'seed-opt-extra-paneer', name: 'Extra Roasted Paneer', costPriceCents: 60, isActive: true },
+  });
+  const optAvocado = await prisma.option.upsert({
+    where: { id: 'seed-opt-avocado' },
+    update: { name: 'Avocado Salsa', costPriceCents: 75, isActive: true },
+    create: { id: 'seed-opt-avocado', name: 'Avocado Salsa', costPriceCents: 75, isActive: true },
+  });
+  await prisma.optionGroupOption.upsert({
+    where: { optionGroupId_optionId: { optionGroupId: groupBowlAddon.id, optionId: optExtraPaneer.id } },
+    update: { displayOrder: 1 },
+    create: { optionGroupId: groupBowlAddon.id, optionId: optExtraPaneer.id, displayOrder: 1 },
+  });
+  await prisma.optionGroupOption.upsert({
+    where: { optionGroupId_optionId: { optionGroupId: groupBowlAddon.id, optionId: optAvocado.id } },
+    update: { displayOrder: 2 },
+    create: { optionGroupId: groupBowlAddon.id, optionId: optAvocado.id, displayOrder: 2 },
+  });
+
+  // Prices across tiers
+  for (const [tierName, tierId] of priceTierMap.entries()) {
+    if (!tierId) continue;
+    const isGold = tierName === 'Enterprise Gold';
+    const isStartup = tierName === 'Startup Advantage';
+
+    // Salad price: standard 850, gold 750, startup 800
+    const saladPrice = isGold ? 750 : isStartup ? 800 : 850;
+    await prisma.dishPrice.upsert({
+      where: { dishId_priceTierId: { dishId: dishSalad.id, priceTierId: tierId } },
+      update: { priceCents: saladPrice },
+      create: { dishId: dishSalad.id, priceTierId: tierId, priceCents: saladPrice },
+    });
+
+    // Bowl price: standard 950, gold 850, startup 900
+    const bowlPrice = isGold ? 850 : isStartup ? 900 : 950;
+    await prisma.dishPrice.upsert({
+      where: { dishId_priceTierId: { dishId: dishBowl.id, priceTierId: tierId } },
+      update: { priceCents: bowlPrice },
+      create: { dishId: dishBowl.id, priceTierId: tierId, priceCents: bowlPrice },
+    });
+
+    // Option prices
+    await prisma.optionPrice.upsert({
+      where: { optionId_priceTierId: { optionId: optHoneyMustard.id, priceTierId: tierId } },
+      update: { priceCents: isGold ? 40 : isStartup ? 45 : 50 },
+      create: { optionId: optHoneyMustard.id, priceTierId: tierId, priceCents: isGold ? 40 : isStartup ? 45 : 50 },
+    });
+    await prisma.optionPrice.upsert({
+      where: { optionId_priceTierId: { optionId: optOliveOil.id, priceTierId: tierId } },
+      update: { priceCents: isGold ? 30 : isStartup ? 35 : 40 },
+      create: { optionId: optOliveOil.id, priceTierId: tierId, priceCents: isGold ? 30 : isStartup ? 35 : 40 },
+    });
+    await prisma.optionPrice.upsert({
+      where: { optionId_priceTierId: { optionId: optExtraPaneer.id, priceTierId: tierId } },
+      update: { priceCents: isGold ? 130 : isStartup ? 140 : 150 },
+      create: { optionId: optExtraPaneer.id, priceTierId: tierId, priceCents: isGold ? 130 : isStartup ? 140 : 150 },
+    });
+    await prisma.optionPrice.upsert({
+      where: { optionId_priceTierId: { optionId: optAvocado.id, priceTierId: tierId } },
+      update: { priceCents: isGold ? 160 : isStartup ? 170 : 180 },
+      create: { optionId: optAvocado.id, priceTierId: tierId, priceCents: isGold ? 160 : isStartup ? 170 : 180 },
+    });
+  }
 
   // 6. Find Driver User
   const driverUser = await prisma.user.findUnique({
@@ -891,6 +1027,532 @@ export async function main() {
     console.log(
       `  ✓ Employee: ${employee.firstName} ${employee.lastName} (${employee.email})`,
     );
+  }
+
+  // 9. Seed Realistic Orders in all relevant statuses
+  console.log('Seeding realistic orders across statuses, companies, and dates...');
+
+  const empRajesh = await prisma.employee.findUnique({ where: { email: 'rajesh.sharma@apextech.io' } });
+  const empPriya = await prisma.employee.findUnique({ where: { email: 'priya.patel@apextech.io' } });
+  const empAnanya = await prisma.employee.findUnique({ where: { email: 'ananya.rao@summithealth.co' } });
+  const empVikram = await prisma.employee.findUnique({ where: { email: 'vikram.nair@summithealth.co' } });
+  const empSiddharth = await prisma.employee.findUnique({ where: { email: 'siddharth.menon@verdantbio.in' } });
+
+  const addrApexHQ = seededAddressesMap.get('Apex Tower HQ');
+  const addrApexWhitefield = seededAddressesMap.get('Apex Whitefield Campus');
+  const addrSummit = seededAddressesMap.get('Summit Innovation Centre');
+  const addrVerdant = seededAddressesMap.get('Verdant Lab Facilities');
+
+  const pkgEco = pkgMap.get('Standard Eco Box')!;
+  const pkgBento = pkgMap.get('Premium Bento Pack')!;
+  const pkgBio = pkgMap.get('Biodegradable Meal Tray')!;
+
+  const seedOrders = [
+    // 1. DELIVERED order in the past (Apex)
+    {
+      orderNumber: 'FK-2026-0001',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: new Date('2026-09-24T00:00:00.000Z'),
+      deliveryTimeMinutes: 750,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.DELIVERED,
+      totalCents: 1580,
+      placedAt: new Date('2026-09-21T10:00:00.000Z'),
+      confirmedAt: new Date('2026-09-22T16:00:00.000Z'),
+      deliveredAt: new Date('2026-09-24T12:35:00.000Z'),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 750,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 750,
+          quantity: 2,
+          lineTotalCents: 1580,
+          combinations: [
+            {
+              quantity: 2,
+              unitPriceCents: 790,
+              combinationTotalCents: 1580,
+              options: [
+                {
+                  optionId: optHoneyMustard.id,
+                  optionGroupId: groupDressing.id,
+                  optionGroupNameSnapshot: groupDressing.name,
+                  optionNameSnapshot: optHoneyMustard.name,
+                  optionPriceCents: 40,
+                  portionSizeId: null,
+                  portionNameSnapshot: null,
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-09-21T09:30:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, createdAt: new Date('2026-09-21T10:00:00.000Z') },
+        { type: OrderEventType.ORDER_CONFIRMED, createdAt: new Date('2026-09-22T16:00:00.000Z') },
+        { type: OrderEventType.DELIVERED, createdAt: new Date('2026-09-24T12:35:00.000Z') },
+      ],
+    },
+    // 2. CONFIRMED order (Apex) - multi-combination
+    {
+      orderNumber: 'FK-2026-0002',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: new Date('2026-10-06T00:00:00.000Z'),
+      deliveryTimeMinutes: 750,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 2810,
+      placedAt: new Date('2026-10-01T11:00:00.000Z'),
+      confirmedAt: new Date('2026-10-02T16:00:00.000Z'),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 750,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 850,
+          quantity: 3,
+          lineTotalCents: 2810,
+          combinations: [
+            {
+              quantity: 2,
+              unitPriceCents: 850,
+              combinationTotalCents: 1700,
+              options: [
+                {
+                  optionId: optExtraPaneer.id,
+                  optionGroupId: groupBowlAddon.id,
+                  optionGroupNameSnapshot: groupBowlAddon.name,
+                  optionNameSnapshot: optExtraPaneer.name,
+                  optionPriceCents: 0,
+                  portionSizeId: portionRegular.id,
+                  portionNameSnapshot: 'Regular',
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+            {
+              quantity: 1,
+              unitPriceCents: 1110,
+              combinationTotalCents: 1110,
+              options: [
+                {
+                  optionId: optAvocado.id,
+                  optionGroupId: groupBowlAddon.id,
+                  optionGroupNameSnapshot: groupBowlAddon.name,
+                  optionNameSnapshot: optAvocado.name,
+                  optionPriceCents: 160,
+                  portionSizeId: portionLarge.id,
+                  portionNameSnapshot: 'Large',
+                  portionExtraCents: 100,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-10-01T10:00:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, createdAt: new Date('2026-10-01T11:00:00.000Z') },
+        { type: OrderEventType.ORDER_CONFIRMED, createdAt: new Date('2026-10-02T16:00:00.000Z') },
+      ],
+    },
+    // 3. PLACED order next week (Summit Health)
+    {
+      orderNumber: 'FK-2026-0003',
+      employeeId: empAnanya!.id,
+      companyId: summitComp.id,
+      deliveryDate: new Date('2026-10-14T00:00:00.000Z'),
+      deliveryTimeMinutes: 780,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.PLACED,
+      totalCents: 1900,
+      placedAt: new Date('2026-10-02T14:00:00.000Z'),
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 780,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 950,
+          quantity: 2,
+          lineTotalCents: 1900,
+          combinations: [
+            {
+              quantity: 2,
+              unitPriceCents: 950,
+              combinationTotalCents: 1900,
+              options: [
+                {
+                  optionId: optExtraPaneer.id,
+                  optionGroupId: groupBowlAddon.id,
+                  optionGroupNameSnapshot: groupBowlAddon.name,
+                  optionNameSnapshot: optExtraPaneer.name,
+                  optionPriceCents: 0,
+                  portionSizeId: portionRegular.id,
+                  portionNameSnapshot: 'Regular',
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-10-02T13:30:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, createdAt: new Date('2026-10-02T14:00:00.000Z') },
+      ],
+    },
+    // 4. DRAFT order next week (Verdant)
+    {
+      orderNumber: 'FK-2026-0004',
+      employeeId: empSiddharth!.id,
+      companyId: verdantComp.id,
+      deliveryDate: new Date('2026-10-15T00:00:00.000Z'),
+      deliveryTimeMinutes: 720,
+      packagingTypeId: pkgBio,
+      status: OrderStatus.DRAFT,
+      totalCents: 845,
+      delivery: {
+        companyAddressId: addrVerdant.id,
+        addressLabelSnapshot: addrVerdant.label,
+        addressLine1Snapshot: addrVerdant.addressLine1,
+        addressLine2Snapshot: addrVerdant.addressLine2,
+        citySnapshot: addrVerdant.city,
+        stateSnapshot: addrVerdant.state,
+        postalCodeSnapshot: addrVerdant.postalCode,
+        deliveryTimeMinutes: 720,
+        packagingNameSnapshot: 'Biodegradable Meal Tray',
+        deliveryInstructionsSnapshot: verdantComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 800,
+          quantity: 1,
+          lineTotalCents: 845,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 845,
+              combinationTotalCents: 845,
+              options: [
+                {
+                  optionId: optHoneyMustard.id,
+                  optionGroupId: groupDressing.id,
+                  optionGroupNameSnapshot: groupDressing.name,
+                  optionNameSnapshot: optHoneyMustard.name,
+                  optionPriceCents: 45,
+                  portionSizeId: null,
+                  portionNameSnapshot: null,
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-10-03T10:00:00.000Z') },
+      ],
+    },
+    // 5. CANCELLED order (Apex)
+    {
+      orderNumber: 'FK-2026-0005',
+      employeeId: empPriya!.id,
+      companyId: apexComp.id,
+      deliveryDate: new Date('2026-09-25T00:00:00.000Z'),
+      deliveryTimeMinutes: 750,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CANCELLED,
+      totalCents: 790,
+      cancellationReason: 'Employee cancelled before cutoff',
+      placedAt: new Date('2026-09-22T09:00:00.000Z'),
+      cancelledAt: new Date('2026-09-23T11:00:00.000Z'),
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 750,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 750,
+          quantity: 1,
+          lineTotalCents: 790,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 790,
+              combinationTotalCents: 790,
+              options: [
+                {
+                  optionId: optHoneyMustard.id,
+                  optionGroupId: groupDressing.id,
+                  optionGroupNameSnapshot: groupDressing.name,
+                  optionNameSnapshot: optHoneyMustard.name,
+                  optionPriceCents: 40,
+                  portionSizeId: null,
+                  portionNameSnapshot: null,
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-09-22T08:30:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, createdAt: new Date('2026-09-22T09:00:00.000Z') },
+        { type: OrderEventType.ORDER_CANCELLED, note: 'Employee cancelled before cutoff', createdAt: new Date('2026-09-23T11:00:00.000Z') },
+      ],
+    },
+    // 6. REJECTED order (Summit Health)
+    {
+      orderNumber: 'FK-2026-0006',
+      employeeId: empVikram!.id,
+      companyId: summitComp.id,
+      deliveryDate: new Date('2026-09-26T00:00:00.000Z'),
+      deliveryTimeMinutes: 780,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.REJECTED,
+      totalCents: 950,
+      cancellationReason: 'Kitchen capacity exceeded for selected delivery slot',
+      placedAt: new Date('2026-09-23T10:00:00.000Z'),
+      rejectedAt: new Date('2026-09-24T12:00:00.000Z'),
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 780,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 950,
+          quantity: 1,
+          lineTotalCents: 950,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 950,
+              combinationTotalCents: 950,
+              options: [
+                {
+                  optionId: optExtraPaneer.id,
+                  optionGroupId: groupBowlAddon.id,
+                  optionGroupNameSnapshot: groupBowlAddon.name,
+                  optionNameSnapshot: optExtraPaneer.name,
+                  optionPriceCents: 0,
+                  portionSizeId: portionRegular.id,
+                  portionNameSnapshot: 'Regular',
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, createdAt: new Date('2026-09-23T09:30:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, createdAt: new Date('2026-09-23T10:00:00.000Z') },
+        { type: OrderEventType.ORDER_REJECTED, note: 'Kitchen capacity exceeded for selected delivery slot', createdAt: new Date('2026-09-24T12:00:00.000Z') },
+      ],
+    },
+    // 7. CONFIRMED with ADMIN_OVERRIDE (Apex)
+    {
+      orderNumber: 'FK-2026-0007',
+      employeeId: empPriya!.id,
+      companyId: apexComp.id,
+      deliveryDate: new Date('2026-10-06T00:00:00.000Z'),
+      deliveryTimeMinutes: 750,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 1580,
+      placedAt: new Date('2026-10-01T15:00:00.000Z'),
+      confirmedAt: new Date('2026-10-02T16:00:00.000Z'),
+      delivery: {
+        companyAddressId: addrApexWhitefield.id, // overridden from HQ to Whitefield
+        addressLabelSnapshot: addrApexWhitefield.label,
+        addressLine1Snapshot: addrApexWhitefield.addressLine1,
+        addressLine2Snapshot: addrApexWhitefield.addressLine2,
+        citySnapshot: addrApexWhitefield.city,
+        stateSnapshot: addrApexWhitefield.state,
+        postalCodeSnapshot: addrApexWhitefield.postalCode,
+        deliveryTimeMinutes: 750,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 750,
+          quantity: 2,
+          lineTotalCents: 1580,
+          combinations: [
+            {
+              quantity: 2,
+              unitPriceCents: 790,
+              combinationTotalCents: 1580,
+              options: [
+                {
+                  optionId: optHoneyMustard.id,
+                  optionGroupId: groupDressing.id,
+                  optionGroupNameSnapshot: groupDressing.name,
+                  optionNameSnapshot: optHoneyMustard.name,
+                  optionPriceCents: 40,
+                  portionSizeId: null,
+                  portionNameSnapshot: null,
+                  portionExtraCents: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date('2026-10-01T14:30:00.000Z') },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date('2026-10-01T15:00:00.000Z') },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date('2026-10-02T16:00:00.000Z') },
+        {
+          type: OrderEventType.ADMIN_OVERRIDE,
+          note: 'Delivery address rerouted to Whitefield Campus per facilities manager request',
+          metadata: {
+            previousValue: { addressLabel: addrApexHQ.label },
+            newValue: { addressLabel: addrApexWhitefield.label },
+          },
+          occurredAt: new Date('2026-10-03T11:00:00.000Z'),
+        },
+      ],
+    },
+  ];
+
+  for (const o of seedOrders) {
+    const existing = await prisma.order.findUnique({ where: { orderNumber: o.orderNumber } });
+    if (existing) {
+      await prisma.order.delete({ where: { id: existing.id } });
+    }
+
+    const createdOrder = await prisma.order.create({
+      data: {
+        orderNumber: o.orderNumber,
+        employeeId: o.employeeId,
+        companyId: o.companyId,
+        deliveryDate: o.deliveryDate,
+        deliveryTimeMinutes: o.deliveryTimeMinutes,
+        packagingTypeId: o.packagingTypeId,
+        status: o.status,
+        totalCents: o.totalCents,
+        cancellationReason: (o as any).cancellationReason || null,
+        placedAt: (o as any).placedAt || null,
+        confirmedAt: (o as any).confirmedAt || null,
+        deliveredAt: (o as any).deliveredAt || null,
+        cancelledAt: (o as any).cancelledAt || null,
+        rejectedAt: (o as any).rejectedAt || null,
+        delivery: {
+          create: o.delivery,
+        },
+        lines: {
+          create: o.lines.map((l) => ({
+            dishId: l.dishId,
+            dishNameSnapshot: l.dishNameSnapshot,
+            dishSkuSnapshot: l.dishSkuSnapshot,
+            dishUnitPriceCents: l.dishUnitPriceCents,
+            quantity: l.quantity,
+            lineTotalCents: l.lineTotalCents,
+            combinations: {
+              create: l.combinations.map((c) => ({
+                quantity: c.quantity,
+                unitPriceCents: c.unitPriceCents,
+                combinationTotalCents: c.combinationTotalCents,
+                options: {
+                  create: c.options.map((opt) => ({
+                    optionId: opt.optionId,
+                    optionGroupId: opt.optionGroupId,
+                    optionGroupNameSnapshot: opt.optionGroupNameSnapshot,
+                    optionNameSnapshot: opt.optionNameSnapshot,
+                    optionPriceCents: opt.optionPriceCents,
+                    portionSizeId: opt.portionSizeId,
+                    portionNameSnapshot: opt.portionNameSnapshot,
+                    portionExtraCents: opt.portionExtraCents,
+                  })),
+                },
+              })),
+            },
+          })),
+        },
+        events: {
+          create: o.events.map((e) => ({
+            type: e.type,
+            note: (e as any).note || null,
+            metadata: (e as any).metadata || null,
+            occurredAt: (e as any).occurredAt || new Date(),
+          })),
+        },
+      },
+    });
+
+    console.log(`  ✓ Order: ${createdOrder.orderNumber} [${createdOrder.status}] - ${createdOrder.totalCents}¢`);
   }
 
   console.log('✅ Seed completed successfully.');
