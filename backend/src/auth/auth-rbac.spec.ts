@@ -540,4 +540,59 @@ describe('Authentication & RBAC Authorization Boundaries', () => {
       ForbiddenException,
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 5 Authorization Tests (Items 27 to 30)
+  // ---------------------------------------------------------------------------
+  it('27. Admin can manage companies (has companies.manage)', () => {
+    const adminUser: AuthenticatedUser = {
+      id: 'admin-1',
+      email: 'admin@test.com',
+      name: 'Admin',
+      roleId: 'role-admin',
+      roleName: 'ADMIN',
+      permissions: adminPermissions,
+    };
+    const ctx = createMockContext(adminUser, false, ['companies.manage']);
+    expect(permissionsGuard.canActivate(ctx)).toBe(true);
+  });
+
+  it('28. Non-admin without companies.manage receives 403 Forbidden', () => {
+    const driverUser: AuthenticatedUser = {
+      id: 'driver-1',
+      email: 'driver@test.com',
+      name: 'Driver',
+      roleId: 'role-driver',
+      roleName: 'DRIVER',
+      permissions: driverPermissions,
+    };
+    const ctx = createMockContext(driverUser, false, ['companies.manage']);
+    expect(() => permissionsGuard.canActivate(ctx)).toThrow(ForbiddenException);
+  });
+
+  it('29. Admin can manage employees (has employees.manage)', () => {
+    const adminUser: AuthenticatedUser = {
+      id: 'admin-1',
+      email: 'admin@test.com',
+      name: 'Admin',
+      roleId: 'role-admin',
+      roleName: 'ADMIN',
+      permissions: adminPermissions,
+    };
+    const ctx = createMockContext(adminUser, false, ['employees.manage']);
+    expect(permissionsGuard.canActivate(ctx)).toBe(true);
+  });
+
+  it('30. Unauthorized user receives 403 for employee management', () => {
+    const kitchenUser: AuthenticatedUser = {
+      id: 'kitchen-1',
+      email: 'kitchen@test.com',
+      name: 'Kitchen',
+      roleId: 'role-kitchen',
+      roleName: 'KITCHEN',
+      permissions: kitchenPermissions,
+    };
+    const ctx = createMockContext(kitchenUser, false, ['employees.manage']);
+    expect(() => permissionsGuard.canActivate(ctx)).toThrow(ForbiddenException);
+  });
 });
