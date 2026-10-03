@@ -732,3 +732,78 @@ Calculated server-side relative to current time ($T_{now}$) and `plannedKitchenR
 - Eliminates hardcoded role name checks (`user.role === 'KITCHEN'`).
 - Scoped response payloads expose operational culinary data (dishes, portions, options, quantities, timings, station, status) while strictly omitting sensitive employee personal data, billing/invoicing details, or driver logistics.
 
+## 29. Dispatch & Driver Operations Decisions (Phase 8)
+
+### 29.1 Drop Grouping Key & Invariants
+- A **Drop** groups deliveries with the exact triplet:
+  - `companyId`
+  - `addressKey` (`companyAddressId`)
+  - `deliveryTimeMinutes` (exact minutes since midnight)
+  - on the target `deliveryDate` (`@db.Date` in `Asia/Kolkata`).
+- Guaranteed at the database level by the composite unique index:
+  `@@unique([companyId, deliveryDate, deliveryTimeMinutes, addressKey])` on `Drop`.
+- Each order belongs to at most one drop via `DropOrder` with a unique index `@unique([orderId])`.
+- Any difference in company, delivery address, or exact delivery time results in distinct drops. There is no grouping by approximate time, postal code, or company alone.
+
+### 29.2 Drop Lifecycle State Machine
+- State machine states:
+  `KITCHEN_READY` $\rightarrow$ `DISPATCH_READY` $\rightarrow$ `OUT_FOR_DELIVERY` $\rightarrow$ `DELIVERED`.
+- Invariants:
+  - Transition to `DISPATCH_READY` requires all orders in the drop to have `kitchenReadyAt !== null`.
+  - Transition to `OUT_FOR_DELIVERY` requires status to be `DISPATCH_READY` AND `driverId !== null` (assigned valid active driver).
+  - Transition to `DELIVERED` requires status to be `OUT_FOR_DELIVERY` and caller to be the assigned driver (or authorized dispatch operator).
+  - No skipping of states, no backwards transitions, and repeated attempts return a clear 4xx error (409 Conflict).
+
+### 29.3 Driver Assignment & Capability Resolution
+- Assignment requires permission `dispatch.assign_driver`.
+- Drivers are validated against database state:
+  - User exists.
+  - `user.status === UserStatus.ACTIVE`.
+  - Driver eligibility: `user.role.name === 'DRIVER'` OR role has permission `driver.read_own_deliveries`.
+- Non-drivers (kitchen staff, unprivileged users) are strictly rejected with 400 Bad Request.
+
+### 29.4 Default Driver Behavior
+- When drops are created, `Company.defaultDriverId` is evaluated:
+  - If configured and the user is an active, eligible driver, the drop is automatically assigned to that driver.
+  - If `defaultDriverId` is null or invalid/inactive, the drop remains unassigned (`driverId: null`).
+  - No speculative fallback assignment algorithms are executed.
+
+### 29.5 Driver Data Scoping & Security
+- Driver endpoint `/api/dispatch/my-deliveries` strictly binds to the authenticated user ID (`user.id`) from the verified JWT.
+- Query parameters such as `?driverId=...` are strictly ignored for authorization.
+- Date scope is strictly pinned to today's date in `Asia/Kolkata` (`UTC+05:30`). Drivers cannot retrieve yesterday's or tomorrow's drops from the active driver view.
+- Driver drop detail (`GET /api/dispatch/drops/:id`) and completion (`POST /api/dispatch/drops/:id/delivered`) enforce ownership: Drivers attempting to inspect or deliver drops assigned to another driver receive 403 Forbidden.
+- Drivers' deliveries are deterministically ordered by `deliveryTimeMinutes` ascending.
+
+### 29.6 On-Time Delivery Formula
+- Evaluated strictly in the kitchen operational timezone (`Asia/Kolkata`, UTC+05:30).
+- Scheduled delivery timestamp $T_{scheduled}$:
+  $$T_{scheduled} = \text{Date.UTC}(y, m - 1, d, 0, 0, 0) - (5.5 \times 3600 \times 1000) + (\text{deliveryTimeMinutes} \times 60 \times 1000)$$
+- Actual delivery timestamp $T_{delivered} = \text{now}$.
+- On-time boolean formula:
+  $$\text{isOnTime} = T_{delivered} \le T_{scheduled}$$
+- Evaluated without arbitrary grace periods, recorded permanently on `Drop.isOnTime` and `DeliveryRecord`.
+
+### 29.7 Handling Delivery-Detail Changes After Drop Creation
+- When an order's delivery parameters (delivery time or delivery address) are updated post-cutoff via admin override, `DispatchService.reconcileOrderDrop(orderId)` executes automatically:
+  - If the order was attached to an existing drop whose grouping key no longer matches, the stale `DropOrder` link is deleted.
+  - If the previous drop becomes empty and was not already delivered, the obsolete drop record is pruned.
+  - The order is then linked to the matching drop for the new delivery parameters (creating a new drop if none exists yet).
+  - This prevents stale drop groupings and avoids duplicate drops.
+
+### 29.8 Delivery Proof (Note & Photo Storage Approach)
+- Stores delivery proof in `DeliveryRecord`:
+  - `note`: Validated optional text note (max 1000 characters).
+  - `photoUrl`: Validated non-empty URL reference (e.g. S3 / CDN URL) to the delivery photograph.
+  - No complex binary file-storage system is introduced on the server; clients or storage services supply standard URL references.
+
+### 29.9 Concurrency & Idempotency Strategy
+- Drops generation uses database-level composite uniqueness and UPSERT semantics to ensure concurrent generation requests are idempotent and never produce duplicate drops.
+- State transitions (`markOutForDelivery`, `markDelivered`) execute inside atomic database transactions with conditional state checks (`status === 'DISPATCH_READY'` / `status === 'OUT_FOR_DELIVERY'`).
+- Marking delivered propagates to all contained orders in a single atomic transaction:
+  - Sets `Order.status = DELIVERED` and `Order.deliveredAt`.
+  - Creates corresponding `DELIVERED` `OrderEvent` records for each contained order.
+  - Creates or updates `DeliveryRecord`.
+  - Repeated delivered requests are rejected with 409 Conflict.
+
+

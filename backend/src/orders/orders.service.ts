@@ -10,6 +10,7 @@ import { MenuService } from '../menu/menu.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CutoffService } from './cutoff.service';
 import { KitchenService } from '../kitchen/kitchen.service';
+import { DispatchService } from '../dispatch/dispatch.service';
 import { OrderEventType, OrderStatus, Prisma } from '@prisma/client';
 import { CreateOrderDto, CreateOrderLineDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -52,6 +53,7 @@ export class OrdersService {
     private readonly companiesService: CompaniesService,
     private readonly cutoffService: CutoffService,
     @Optional() private readonly kitchenService?: KitchenService,
+    @Optional() private readonly dispatchService?: DispatchService,
   ) {}
 
   /**
@@ -1192,7 +1194,7 @@ export class OrdersService {
       plannedDispatchReadyAt.getTime() - 30 * 60 * 1000,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id },
         data: {
@@ -1241,6 +1243,15 @@ export class OrdersService {
 
       return updated;
     });
+
+    if (
+      this.dispatchService &&
+      (dto.companyAddressId || dto.deliveryTimeMinutes !== undefined)
+    ) {
+      await this.dispatchService.reconcileOrderDrop(id);
+    }
+
+    return result;
   }
 
   // ===========================================================================

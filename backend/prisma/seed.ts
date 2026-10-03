@@ -6,6 +6,7 @@ import {
   OrderStatus,
   OrderEventType,
   KitchenUnitStatus,
+  DropStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
@@ -135,6 +136,12 @@ export const SEEDED_ACCOUNTS = [
     email: 'driver@test.com',
     password: 'Test@1234',
     name: 'Delivery Driver',
+    role: 'DRIVER',
+  },
+  {
+    email: 'driver2@test.com',
+    password: 'Test@1234',
+    name: 'Second Driver',
     role: 'DRIVER',
   },
 ];
@@ -742,6 +749,14 @@ export async function main() {
           state: 'Karnataka',
           postalCode: '560093',
         },
+        {
+          label: 'Verdant Shared Campus Hub',
+          addressLine1: 'Plot 12, Electronic City Phase 1',
+          addressLine2: 'Hosur Road',
+          city: 'Bangalore',
+          state: 'Karnataka',
+          postalCode: '560100',
+        },
       ],
       holidays: [
         { date: new Date('2026-05-01T00:00:00.000Z'), name: 'May Day' },
@@ -1124,6 +1139,7 @@ export async function main() {
   const addrApexWhitefield = seededAddressesMap.get('Apex Whitefield Campus');
   const addrSummit = seededAddressesMap.get('Summit Innovation Centre');
   const addrVerdant = seededAddressesMap.get('Verdant Lab Facilities');
+  const addrVerdantHub = seededAddressesMap.get('Verdant Shared Campus Hub');
 
   const pkgEco = pkgMap.get('Standard Eco Box')!;
   const pkgBento = pkgMap.get('Premium Bento Pack')!;
@@ -1144,6 +1160,12 @@ export async function main() {
   const timingsK003 = calculatePlannedTimings(todayKolkataDate, 1110, verdantComp.deliveryMinutesBefore ?? 60);
   const timings0002 = calculatePlannedTimings(new Date('2026-10-06T00:00:00.000Z'), 750, apexComp.deliveryMinutesBefore ?? 60);
   const timings0007 = calculatePlannedTimings(new Date('2026-10-06T00:00:00.000Z'), 750, apexComp.deliveryMinutesBefore ?? 60);
+
+  const timingsD001 = calculatePlannedTimings(todayKolkataDate, 700, apexComp.deliveryMinutesBefore ?? 45);
+  const timingsD002 = calculatePlannedTimings(todayKolkataDate, 700, apexComp.deliveryMinutesBefore ?? 45);
+  const timingsD003 = calculatePlannedTimings(todayKolkataDate, 840, apexComp.deliveryMinutesBefore ?? 45);
+  const timingsD004 = calculatePlannedTimings(todayKolkataDate, 840, summitComp.deliveryMinutesBefore ?? 60);
+  const timingsD005 = calculatePlannedTimings(todayKolkataDate, 840, verdantComp.deliveryMinutesBefore ?? 30);
 
   const seedOrders = [
     // 1. DELIVERED order in the past (Apex)
@@ -1808,7 +1830,304 @@ export async function main() {
         { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
       ],
     },
+
+    // 11. Phase 8: DISPATCH READY multi-order 1 (Apex, 11:40 delivery, addrApexHQ)
+    {
+      orderNumber: 'FK-2026-D001',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 700,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 850,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 2 * 3600 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 60 * 60 * 1000),
+      plannedDispatchReadyAt: timingsD001.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsD001.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 700,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 850,
+          quantity: 1,
+          lineTotalCents: 850,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 850,
+              combinationTotalCents: 850,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 2 * 3600 * 1000),
+              completedAt: new Date(Date.now() - 60 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 2 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 60 * 60 * 1000) },
+      ],
+    },
+
+    // 12. Phase 8: DISPATCH READY multi-order 2 (Apex, 11:40 delivery, addrApexHQ -> same drop as D001!)
+    {
+      orderNumber: 'FK-2026-D002',
+      employeeId: empPriya!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 700,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 750,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 2 * 3600 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 60 * 60 * 1000),
+      plannedDispatchReadyAt: timingsD002.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsD002.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 700,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 750,
+          quantity: 1,
+          lineTotalCents: 750,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 750,
+              combinationTotalCents: 750,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 2 * 3600 * 1000),
+              completedAt: new Date(Date.now() - 60 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 2 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 60 * 60 * 1000) },
+      ],
+    },
+
+    // 13. Phase 8: OUT_FOR_DELIVERY order (Apex, 14:00 delivery, addrApexHQ -> separate drop due to time!)
+    {
+      orderNumber: 'FK-2026-D003',
+      employeeId: empRajesh!.id,
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      packagingTypeId: pkgEco,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 200,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 3 * 3600 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 90 * 60 * 1000),
+      plannedDispatchReadyAt: timingsD003.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsD003.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrApexHQ.id,
+        addressLabelSnapshot: addrApexHQ.label,
+        addressLine1Snapshot: addrApexHQ.addressLine1,
+        addressLine2Snapshot: addrApexHQ.addressLine2,
+        citySnapshot: addrApexHQ.city,
+        stateSnapshot: addrApexHQ.state,
+        postalCodeSnapshot: addrApexHQ.postalCode,
+        deliveryTimeMinutes: 840,
+        packagingNameSnapshot: 'Standard Eco Box',
+        deliveryInstructionsSnapshot: apexComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBrownie.id,
+          dishNameSnapshot: dishBrownie.name,
+          dishSkuSnapshot: dishBrownie.sku,
+          dishUnitPriceCents: 200,
+          quantity: 1,
+          lineTotalCents: 200,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 200,
+              combinationTotalCents: 200,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 3 * 3600 * 1000),
+              completedAt: new Date(Date.now() - 90 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 3 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 90 * 60 * 1000) },
+      ],
+    },
+
+    // 14. Phase 8: UNASSIGNED DISPATCH_READY order (Summit, 14:00 delivery, addrSummit)
+    {
+      orderNumber: 'FK-2026-D004',
+      employeeId: empAnanya!.id,
+      companyId: summitComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      packagingTypeId: pkgBento,
+      status: OrderStatus.CONFIRMED,
+      totalCents: 850,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 2 * 3600 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 60 * 60 * 1000),
+      plannedDispatchReadyAt: timingsD004.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsD004.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrSummit.id,
+        addressLabelSnapshot: addrSummit.label,
+        addressLine1Snapshot: addrSummit.addressLine1,
+        addressLine2Snapshot: addrSummit.addressLine2,
+        citySnapshot: addrSummit.city,
+        stateSnapshot: addrSummit.state,
+        postalCodeSnapshot: addrSummit.postalCode,
+        deliveryTimeMinutes: 840,
+        packagingNameSnapshot: 'Premium Bento Pack',
+        deliveryInstructionsSnapshot: summitComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishBowl.id,
+          dishNameSnapshot: dishBowl.name,
+          dishSkuSnapshot: dishBowl.sku,
+          dishUnitPriceCents: 850,
+          quantity: 1,
+          lineTotalCents: 850,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 850,
+              combinationTotalCents: 850,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 2 * 3600 * 1000),
+              completedAt: new Date(Date.now() - 60 * 60 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 2 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 60 * 60 * 1000) },
+      ],
+    },
+
+    // 15. Phase 8: DELIVERED order with Proof (Verdant, 14:00 delivery, addrVerdantHub -> same physical address as Summit, separate company!)
+    {
+      orderNumber: 'FK-2026-D005',
+      employeeId: empSiddharth!.id,
+      companyId: verdantComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      packagingTypeId: pkgBio,
+      status: OrderStatus.DELIVERED,
+      totalCents: 800,
+      placedAt: new Date(Date.now() - 24 * 3600 * 1000),
+      confirmedAt: new Date(Date.now() - 12 * 3600 * 1000),
+      kitchenStartedAt: new Date(Date.now() - 3 * 3600 * 1000),
+      kitchenReadyAt: new Date(Date.now() - 2 * 3600 * 1000),
+      deliveredAt: new Date(Date.now() - 30 * 60 * 1000),
+      plannedDispatchReadyAt: timingsD005.plannedDispatchReadyAt,
+      plannedKitchenReadyAt: timingsD005.plannedKitchenReadyAt,
+      delivery: {
+        companyAddressId: addrVerdantHub.id,
+        addressLabelSnapshot: addrVerdantHub.label,
+        addressLine1Snapshot: addrVerdantHub.addressLine1,
+        addressLine2Snapshot: addrVerdantHub.addressLine2,
+        citySnapshot: addrVerdantHub.city,
+        stateSnapshot: addrVerdantHub.state,
+        postalCodeSnapshot: addrVerdantHub.postalCode,
+        deliveryTimeMinutes: 840,
+        packagingNameSnapshot: 'Biodegradable Meal Tray',
+        deliveryInstructionsSnapshot: verdantComp.driverInstructions,
+      },
+      lines: [
+        {
+          dishId: dishSalad.id,
+          dishNameSnapshot: dishSalad.name,
+          dishSkuSnapshot: dishSalad.sku,
+          dishUnitPriceCents: 800,
+          quantity: 1,
+          lineTotalCents: 800,
+          combinations: [
+            {
+              quantity: 1,
+              unitPriceCents: 800,
+              combinationTotalCents: 800,
+              unitStatus: KitchenUnitStatus.DONE,
+              startedAt: new Date(Date.now() - 3 * 3600 * 1000),
+              completedAt: new Date(Date.now() - 2 * 3600 * 1000),
+              options: [],
+            },
+          ],
+        },
+      ],
+      events: [
+        { type: OrderEventType.ORDER_CREATED, occurredAt: new Date(Date.now() - 24 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_PLACED, occurredAt: new Date(Date.now() - 23 * 3600 * 1000) },
+        { type: OrderEventType.ORDER_CONFIRMED, occurredAt: new Date(Date.now() - 12 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_STARTED, occurredAt: new Date(Date.now() - 3 * 3600 * 1000) },
+        { type: OrderEventType.KITCHEN_READY, occurredAt: new Date(Date.now() - 2 * 3600 * 1000) },
+        { type: OrderEventType.DELIVERED, occurredAt: new Date(Date.now() - 30 * 60 * 1000) },
+      ],
+    },
   ];
+
+  console.log('Cleaning up existing drops and delivery records to preserve idempotency...');
+  await prisma.deliveryRecord.deleteMany({});
+  await prisma.dropOrder.deleteMany({});
+  await prisma.drop.deleteMany({});
 
   for (const o of seedOrders) {
     const existing = await prisma.order.findUnique({ where: { orderNumber: o.orderNumber } });
@@ -1925,6 +2244,132 @@ export async function main() {
 
     console.log(`  ✓ Order: ${createdOrder.orderNumber} [${createdOrder.status}] - ${createdOrder.totalCents}¢`);
   }
+
+  // 10. Seed Realistic Drops for Phase 8
+  console.log('Seeding Phase 8 drops, group assignments, and delivery records...');
+
+  const orderD001 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-D001' } });
+  const orderD002 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-D002' } });
+  const orderD003 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-D003' } });
+  const orderD004 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-D004' } });
+  const orderD005 = await prisma.order.findUnique({ where: { orderNumber: 'FK-2026-D005' } });
+
+  // Drop 1: Multi-order DISPATCH_READY drop (Apex HQ, 700 minutes, Driver assigned from company default)
+  const drop1 = await prisma.drop.create({
+    data: {
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 700,
+      addressKey: addrApexHQ.id,
+      addressLine1Snapshot: addrApexHQ.addressLine1,
+      addressLine2Snapshot: addrApexHQ.addressLine2,
+      citySnapshot: addrApexHQ.city,
+      stateSnapshot: addrApexHQ.state,
+      postalCodeSnapshot: addrApexHQ.postalCode,
+      standingInstructionsSnapshot: apexComp.driverInstructions,
+      driverId: driverUser.id,
+      status: DropStatus.DISPATCH_READY,
+      kitchenReadyAt: new Date(Date.now() - 60 * 60 * 1000),
+      dispatchReadyAt: new Date(Date.now() - 55 * 60 * 1000),
+      orders: {
+        create: [
+          { orderId: orderD001!.id },
+          { orderId: orderD002!.id },
+        ],
+      },
+    },
+  });
+  console.log(`  ✓ Drop 1 (Multi-order): ${drop1.id} [${drop1.status}] - Driver: ${driverUser.email}`);
+
+  // Drop 2: OUT_FOR_DELIVERY drop (Apex HQ, 840 minutes - split due to different delivery time!)
+  const drop2 = await prisma.drop.create({
+    data: {
+      companyId: apexComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      addressKey: addrApexHQ.id,
+      addressLine1Snapshot: addrApexHQ.addressLine1,
+      addressLine2Snapshot: addrApexHQ.addressLine2,
+      citySnapshot: addrApexHQ.city,
+      stateSnapshot: addrApexHQ.state,
+      postalCodeSnapshot: addrApexHQ.postalCode,
+      standingInstructionsSnapshot: apexComp.driverInstructions,
+      driverId: driverUser.id,
+      status: DropStatus.OUT_FOR_DELIVERY,
+      kitchenReadyAt: new Date(Date.now() - 90 * 60 * 1000),
+      dispatchReadyAt: new Date(Date.now() - 80 * 60 * 1000),
+      outForDeliveryAt: new Date(Date.now() - 40 * 60 * 1000),
+      orders: {
+        create: [
+          { orderId: orderD003!.id },
+        ],
+      },
+    },
+  });
+  console.log(`  ✓ Drop 2 (Out for delivery): ${drop2.id} [${drop2.status}] - Driver: ${driverUser.email}`);
+
+  // Drop 3: UNASSIGNED DISPATCH_READY drop (Summit, 840 minutes, no default driver)
+  const drop3 = await prisma.drop.create({
+    data: {
+      companyId: summitComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      addressKey: addrSummit.id,
+      addressLine1Snapshot: addrSummit.addressLine1,
+      addressLine2Snapshot: addrSummit.addressLine2,
+      citySnapshot: addrSummit.city,
+      stateSnapshot: addrSummit.state,
+      postalCodeSnapshot: addrSummit.postalCode,
+      standingInstructionsSnapshot: summitComp.driverInstructions,
+      driverId: null,
+      status: DropStatus.DISPATCH_READY,
+      kitchenReadyAt: new Date(Date.now() - 60 * 60 * 1000),
+      dispatchReadyAt: new Date(Date.now() - 50 * 60 * 1000),
+      orders: {
+        create: [
+          { orderId: orderD004!.id },
+        ],
+      },
+    },
+  });
+  console.log(`  ✓ Drop 3 (Unassigned): ${drop3.id} [${drop3.status}] - Driver: Unassigned`);
+
+  // Drop 4: DELIVERED drop with photo & note (Verdant Hub, 840 minutes - same physical address as Summit, split due to different company!)
+  const deliveredAtDate = new Date(Date.now() - 30 * 60 * 1000);
+  const drop4 = await prisma.drop.create({
+    data: {
+      companyId: verdantComp.id,
+      deliveryDate: todayKolkataDate,
+      deliveryTimeMinutes: 840,
+      addressKey: addrVerdantHub.id,
+      addressLine1Snapshot: addrVerdantHub.addressLine1,
+      addressLine2Snapshot: addrVerdantHub.addressLine2,
+      citySnapshot: addrVerdantHub.city,
+      stateSnapshot: addrVerdantHub.state,
+      postalCodeSnapshot: addrVerdantHub.postalCode,
+      standingInstructionsSnapshot: verdantComp.driverInstructions,
+      driverId: driverUser.id,
+      status: DropStatus.DELIVERED,
+      kitchenReadyAt: new Date(Date.now() - 120 * 60 * 1000),
+      dispatchReadyAt: new Date(Date.now() - 110 * 60 * 1000),
+      outForDeliveryAt: new Date(Date.now() - 60 * 60 * 1000),
+      deliveredAt: deliveredAtDate,
+      isOnTime: true,
+      orders: {
+        create: [
+          { orderId: orderD005!.id },
+        ],
+      },
+      deliveryRecord: {
+        create: {
+          deliveredAt: deliveredAtDate,
+          note: 'Delivered to reception desk as instructed',
+          photoUrl: 'https://images.fernleafkitchen.test/proofs/drop-d005-delivered.jpg',
+        },
+      },
+    },
+  });
+  console.log(`  ✓ Drop 4 (Delivered with proof): ${drop4.id} [${drop4.status}] - Driver: ${driverUser.email}`);
 
   console.log('✅ Seed completed successfully.');
 }

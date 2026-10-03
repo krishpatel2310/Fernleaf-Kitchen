@@ -5,7 +5,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
+import {
+  PERMISSIONS_KEY,
+  ANY_PERMISSIONS_KEY,
+} from '../decorators/require-permissions.decorator';
 import { AuthenticatedUser } from '../decorators/current-user.decorator';
 
 @Injectable()
@@ -18,7 +21,15 @@ export class PermissionsGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    if (!requiredPermissions || requiredPermissions.length === 0) {
+    const requiredAnyPermissions = this.reflector.getAllAndOverride<string[]>(
+      ANY_PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (
+      (!requiredPermissions || requiredPermissions.length === 0) &&
+      (!requiredAnyPermissions || requiredAnyPermissions.length === 0)
+    ) {
       return true;
     }
 
@@ -32,17 +43,30 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const userPermissions = new Set(user.permissions);
-    const hasAllRequired = requiredPermissions.every((permission) =>
-      userPermissions.has(permission),
-    );
 
-    if (!hasAllRequired) {
-      const missing = requiredPermissions.filter(
-        (permission) => !userPermissions.has(permission),
+    if (requiredPermissions && requiredPermissions.length > 0) {
+      const hasAllRequired = requiredPermissions.every((permission) =>
+        userPermissions.has(permission),
       );
-      throw new ForbiddenException(
-        `Forbidden: Missing required permission(s): ${missing.join(', ')}`,
+      if (!hasAllRequired) {
+        const missing = requiredPermissions.filter(
+          (permission) => !userPermissions.has(permission),
+        );
+        throw new ForbiddenException(
+          `Forbidden: Missing required permission(s): ${missing.join(', ')}`,
+        );
+      }
+    }
+
+    if (requiredAnyPermissions && requiredAnyPermissions.length > 0) {
+      const hasAny = requiredAnyPermissions.some((permission) =>
+        userPermissions.has(permission),
       );
+      if (!hasAny) {
+        throw new ForbiddenException(
+          `Forbidden: Requires at least one permission: ${requiredAnyPermissions.join(', ')}`,
+        );
+      }
     }
 
     return true;
