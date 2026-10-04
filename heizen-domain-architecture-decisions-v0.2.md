@@ -924,6 +924,111 @@ Calculated server-side relative to current time ($T_{now}$) and `plannedKitchenR
   - Completed kitchen station actual timestamps (`startedAt`, `completedAt`, `kitchenStartedAt`, `kitchenReadyAt`) remain untouched.
   - Existing delivery drops and delivery records remain intact.
 
+---
+
+## 32. PHASE 11: ROLE-SPECIFIC OPERATIONAL DASHBOARDS
+
+### 32.1 Architectural Principle: Backend as the Single Source of Truth
+Operational dashboards provide live, decision-grade information to staff rather than raw database count dumps. All derived operational metrics—such as kitchen timing status (`LATE`, `AT_RISK`, `ON_TRACK`, `COMPLETED`), delivery on-time classification, invoice snapshot totals, cutoff evaluations, and driver drop assignments—are computed authoritatively by the backend. The frontend is strictly a presentation layer and must never independently recalculate business rules or derived operational states.
+
+### 32.2 Strict Server-Side RBAC & Capability Permissions
+Access to dashboard endpoints is protected server-side via the application's unified permission guard (`PermissionsGuard`) and `@RequirePermissions(...)` decorator:
+- `GET /api/dashboards/admin` requires `dashboard.admin`
+- `GET /api/dashboards/kitchen` requires `dashboard.kitchen`
+- `GET /api/dashboards/dispatch` requires `dashboard.dispatch`
+- `GET /api/dashboards/driver` requires `dashboard.driver`
+
+Users cannot obtain another role's dashboard merely by manipulating client routes or query parameters. Unauthorized requests return HTTP 403 Forbidden (or HTTP 401 Unauthorized if unauthenticated).
+
+### 32.3 Standardized Timezone & Date Basis
+All operational dashboard metrics default to the current calendar date interpreted in the standardized commercial kitchen timezone:
+$$\text{Timezone} = \text{Asia/Kolkata (UTC+05:30)}$$
+Host machine clock variations are neutralized by computing calendar dates using integer offsets and ISO string formatters (`en-CA` in `Asia/Kolkata`). Where supported, endpoints accept an optional `date=YYYY-MM-DD` query parameter for operational inspection of other production dates.
+
+### 32.4 Driver Data-Level Isolation
+The Driver dashboard enforces strict data-level scoping:
+- The driver's identity is extracted exclusively from the authenticated JWT claims (`req.user.id`).
+- Any query parameters such as `?driverId=...` or `?userId=...` are strictly ignored.
+- The backend queries only drops where `driverId = req.user.id` and `deliveryDate = todayInKolkata`.
+- Drivers cannot view other drivers' assignments or global delivery totals.
+
+### 32.5 Kitchen Unit Counting & Station Breakdown
+In alignment with Phase 7 kitchen domain specifications, kitchen workload is measured in **KitchenUnits**, where one `KitchenUnit` represents one distinct order combination (unique dish, options, and portion configuration). Kitchen workload is never calculated simply as order line counts or raw dish quantities. Station grouping aggregates workload per station and explicitly surfaces units without an assigned station as `Unassigned Station` (`stationId: "unassigned"`).
+
+### 32.6 Drop Lifecycle & Dispatch Readiness
+The Dispatch dashboard adheres strictly to the authoritative delivery drop lifecycle:
+$$\text{KITCHEN\_READY} \longrightarrow \text{DISPATCH\_READY} \longrightarrow \text{OUT\_FOR\_DELIVERY} \longrightarrow \text{DELIVERED}$$
+Drops are never inferred as delivered merely from timestamps; the authoritative enum status is used. Unassigned drops (`driverId = null` with status not delivered) are highlighted in a dedicated `unassignedActionList` with delivery times, addresses, and order counts to enable immediate dispatch intervention.
+
+### 32.7 Authoritative Billing Metrics & Integer Cents
+All financial metrics are calculated and returned in integer cents ($1.00 = 100\text{ cents}$) without floating-point arithmetic. Billing totals distinguish between current live order amounts and immutable historical invoice snapshots. Invoices containing post-issuance order price mutations or cancellations are surfaced via `invoicesWithAdjustmentsCount` reusing Phase 9 mismatch detection rules.
+
+### 32.8 Treatment of Cancelled and Rejected Orders
+Cancelled and rejected orders are strictly excluded from active operational workloads (kitchen production units, active dispatch drops, and operational order counts). However, in the billing domain, cancelled orders that were already issued on historical invoices remain visible because invoicing creates an immutable audit snapshot that requires credit note or billing adjustment tracking. Cancelled and rejected orders for the day are reported in separate dedicated metrics on the admin overview.
+
+### 32.8.1 Distinction Between Operational Orders and Delivered Orders
+The Admin dashboard conceptually and explicitly distinguishes between:
+- **`operationalOrdersToday`**: Represents current confirmed operational demand for today's delivery date (`status = CONFIRMED`). It measures active workload requiring kitchen preparation and dispatch delivery. Strictly excludes completed `DELIVERED` orders, as well as `DRAFT`, unconfirmed `PLACED`, `CANCELLED`, and `REJECTED` orders.
+- **`deliveredOrdersToday`**: Represents completed delivery fulfillment activity (`status = DELIVERED`). Completed deliveries are no longer active operational work and belong exclusively in completed delivery reporting.
+
+
+### 32.9 Missing Data Handling
+Dashboard APIs handle missing optional data gracefully without raising unhandled exceptions or presenting misleading zero counts:
+- Unassigned kitchen stations are categorized explicitly as `Unassigned Station`.
+- Unassigned drivers are reported in dedicated `unassignedDropsCount` and `unassignedActionList`.
+- Null delivery instructions or standing notes are returned as `null` or omitted rather than placeholder strings.
+- Empty dates return valid zero-count summaries and empty collections.
+
+---
+
+### 32.10 Comprehensive Metric Catalog
+
+| Dashboard | Metric Name | Meaning | Why It Exists | Exact Calculation | Included Statuses | Excluded Statuses | Cancelled Handling | Missing Data Handling | State Type |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Admin** | `totalOrdersToday` | All orders recorded for today's delivery date | High-level volume indicator | `count(Order where deliveryDate = today)` | All (`DRAFT`, `PLACED`, `CONFIRMED`, `DELIVERED`, `CANCELLED`, `REJECTED`) | Orders on other dates | Counted in total | Returns `0` if empty | Live DB State |
+| **Admin** | `operationalOrdersToday` | Number of orders scheduled for today's delivery date that are currently confirmed and therefore part of active operational demand | Current confirmed operational demand indicator | `count(Order where deliveryDate = today and status = CONFIRMED)` | `CONFIRMED` | `DRAFT`, `PLACED`, `CANCELLED`, `REJECTED`, `DELIVERED` | Strictly excluded | Returns `0` if empty | Live DB State |
+| **Admin** | `confirmedOrdersToday` | Orders currently confirmed for today | Active production workload | `count(Order where deliveryDate = today and status = CONFIRMED)` | `CONFIRMED` | All others | Excluded | Returns `0` | Live DB State |
+| **Admin** | `placedOrdersToday` | Placed orders awaiting cutoff confirmation | Unconfirmed demand pipeline | `count(Order where deliveryDate = today and status = PLACED)` | `PLACED` | All others | Excluded | Returns `0` | Live DB State |
+| **Admin** | `draftOrdersToday` | Incomplete customer carts | Monitors cart abandonment | `count(Order where deliveryDate = today and status = DRAFT)` | `DRAFT` | All others | Excluded | Returns `0` | Live DB State |
+| **Admin** | `deliveredOrdersToday` | Completed orders today | Fulfillment completion metric | `count(Order where deliveryDate = today and status = DELIVERED)` | `DELIVERED` | All others | Excluded | Returns `0` | Live DB State |
+| **Admin** | `cancelledOrdersToday` | Cancelled orders for today | Monitors customer/cutoff churn | `count(Order where deliveryDate = today and status = CANCELLED)` | `CANCELLED` | All others | Exclusively counted here | Returns `0` | Live DB State |
+| **Admin** | `rejectedOrdersToday` | Rejected orders for today | Surfaces exceptions | `count(Order where deliveryDate = today and status = REJECTED)` | `REJECTED` | All others | Excluded | Returns `0` | Live DB State |
+| **Admin** | `totalKitchenUnits` | Kitchen units for today's confirmed orders | True kitchen workload | `count(KitchenUnit where order.status = CONFIRMED and order.deliveryDate = today)` | Units of `CONFIRMED` orders | Units of unconfirmed/cancelled orders | Excluded | Returns `0` | Live DB State |
+| **Admin** | `kitchenUnitsRemaining` | Incomplete kitchen units | Remaining prep workload | `totalKitchenUnits - kitchenUnitsCompleted` | `NOT_STARTED`, `IN_PROGRESS` | `DONE` | Excluded | Returns `0` | Derived State |
+| **Admin** | `lateUnitsCount` | Units past planned kitchen-ready time | Escalation alerting | Units where `status != DONE` and `timingStatus == LATE` | Active units past ready time | `DONE` units, on-track units | Excluded | Returns `0` | Derived State |
+| **Admin** | `atRiskUnitsCount` | Units within 15 min of ready time | Pre-emptive risk alerting | Units where `status != DONE` and `timingStatus == AT_RISK` | Active units $\le 15\text{ min}$ to ready time | `DONE` units | Excluded | Returns `0` | Derived State |
+| **Admin** | `overallKitchenStatus` | Dominant kitchen health status | Operational health at a glance | `LATE` if late $>0$; else `AT_RISK` if atRisk $>0$; else `COMPLETED` if remaining $==0$ and total $>0$; else `ON_TRACK` | Confirmed kitchen units | Non-confirmed orders | Excluded | Returns `ON_TRACK` | Derived State |
+| **Admin** | `totalDropsToday` | Scheduled delivery drops for today | Fleet delivery volume | `count(Drop where deliveryDate = today)` | All Drop statuses | Drops on other dates | Excluded from active drops | Returns `0` | Live DB State |
+| **Admin** | `unassignedDropsCount` | Active drops lacking a driver | Dispatch assignment backlog | `count(Drop where deliveryDate = today and driverId IS NULL and status != DELIVERED)` | `KITCHEN_READY`, `DISPATCH_READY`, `OUT_FOR_DELIVERY` with `driverId = null` | `DELIVERED`, assigned drops | Excluded | Returns `0` | Live DB State |
+| **Admin** | `uninvoicedConfirmedOrderCount` | Unbilled confirmed orders | Unbilled revenue pipeline | `count(Order where status = CONFIRMED and invoiceEntry IS NULL)` | `CONFIRMED` without invoice | Invoiced orders, draft/cancelled orders | Excluded | Returns `0` | Live DB State |
+| **Admin** | `uninvoicedConfirmedTotalCents` | Unbilled confirmed order total | Unbilled revenue amount (cents) | `sum(Order.totalCents where status = CONFIRMED and invoiceEntry IS NULL)` | `CONFIRMED` without invoice | Invoiced orders | Excluded | Returns `0` | Live DB State |
+| **Admin** | `issuedInvoiceCount` | Unpaid issued invoices | Outstanding accounts receivable count | `count(Invoice where status = ISSUED)` | `ISSUED` | `PAID`, `CANCELLED` | Excluded | Returns `0` | Live DB State |
+| **Admin** | `issuedInvoiceTotalCents` | Outstanding invoice total (cents) | Outstanding accounts receivable value | `sum(Invoice.totalCents where status = ISSUED)` | `ISSUED` | `PAID`, `CANCELLED` | Invoiced cancelled orders preserved in snapshot | Returns `0` | Snapshot Total |
+| **Admin** | `paidInvoiceTotalCents` | Collected invoice total (cents) | Cash collected | `sum(Invoice.totalCents where status = PAID)` | `PAID` | `ISSUED`, `CANCELLED` | Preserved in snapshot | Returns `0` | Snapshot Total |
+| **Admin** | `invoicesWithAdjustmentsCount` | Invoices with post-issue order changes | Audit & adjustment backlog | Count of `ISSUED` invoices where order price mutated or status became `CANCELLED` | `ISSUED` invoices with discrepancies | Normal invoices | Invoiced cancelled orders trigger adjustment flag | Returns `0` | Derived Audit Flag |
+| **Kitchen** | `stationWorkload` | Workload breakdown by station | Station-level staffing & pacing | Grouped unit counts (`notStarted`, `inProgress`, `done`, `late`, `atRisk`) per kitchen station | Units of `CONFIRMED` orders for date | Unconfirmed orders | Excluded | Unassigned station grouped under `"unassigned"` | Live DB & Derived |
+| **Kitchen** | `urgentUnits` | Top 20 late and at-risk units | Actionable kitchen triage list | Ordered list of units with `timingStatus IN [LATE, AT_RISK]` sorted by delivery time | Active late/at-risk units | `DONE` units, on-track units | Excluded | Returns empty array `[]` | Derived Priority List |
+| **Dispatch** | `unassignedActionList` | Actionable unassigned drops | Immediate driver dispatching | Drops where `driverId IS NULL` and `status != DELIVERED` with company, address, time | Active unassigned drops | Assigned drops, delivered drops | Excluded | Returns empty array `[]` | Actionable List |
+| **Dispatch** | `activeDeliveries` | Deliveries currently en route | Transit monitoring | Drops where `status = OUT_FOR_DELIVERY` with driver name, address, departure time | `OUT_FOR_DELIVERY` | All other statuses | Excluded | Returns empty array `[]` | Live En-Route List |
+| **Driver** | `todayAssignedDrops` | Deliveries assigned to logged-in driver | Driver's daily commitment | `count(Drop where driverId = jwt.userId and deliveryDate = today)` | Drops assigned to authenticated driver | Other drivers' drops | Excluded | Returns `0` | JWT-Scoped State |
+| **Driver** | `pendingDeliveries` | Assigned deliveries not yet completed | Driver's remaining stops | Drops assigned to driver with `status != DELIVERED` | `KITCHEN_READY`, `DISPATCH_READY`, `OUT_FOR_DELIVERY` | `DELIVERED` | Excluded | Returns `0` | JWT-Scoped State |
+| **Driver** | `onTimeCount` | Deliveries completed on time | Driver on-time delivery metric | Drops assigned to driver with `status = DELIVERED and isOnTime = true` | `DELIVERED` with `isOnTime = true` | Late deliveries, pending drops | Excluded | Returns `0` | Authoritative History |
+| **Driver** | `lateCount` | Deliveries completed late | Service degradation monitoring | Drops assigned to driver with `status = DELIVERED and isOnTime = false` | `DELIVERED` with `isOnTime = false` | On-time deliveries, pending drops | Excluded | Returns `0` | Authoritative History |
+| **Driver** | `nextDelivery` | Driver's immediate next delivery stop | Turn-by-turn operational clarity | First drop with `status != DELIVERED` ordered by scheduled delivery time | First pending/out-for-delivery drop | Completed drops | Excluded | Returns `null` if all complete | Scoped Operational Next |
+
+---
+
+### 32.11 Intentionally Omitted Metrics
+In accordance with professional domain-driven design, the following metrics were intentionally omitted from operational dashboards:
+1. **Employee Payroll / Wage Calculations**: Omitted as out of scope. Fernleaf Kitchen is a B2B corporate catering provider billing corporate clients, not an HR payroll processor.
+2. **Gross Profit Margin & Ingredient Recipe Costing**: Omitted due to absence of authoritative data. Raw material purchase orders, vendor invoices, wastage, and kitchen labor overhead are not part of the assignment scope.
+3. **Tax (GST/VAT) & Statutory Remittance**: Omitted because billing domain specifications mandate integer-cents pre-tax invoicing without assumptions regarding external tax rules.
+4. **Customer Acquisition Cost (CAC) & Sales Funnel Analytics**: Omitted because marketing and sales pipeline metrics do not serve daily commercial kitchen operations.
+5. **General Ledger & Banking Reconciliation**: Omitted because internal billing snapshots handle operational invoicing; multi-entry ledger accounting belongs in external enterprise accounting systems.
+6. **Individual Employee Kitchen Productivity Scoring**: Omitted to prevent ungrounded or arbitrary micro-performance tracking not specified by the hiring assignment.
+7. **Predictive Machine Learning Forecasting**: Omitted because operational dashboards must provide 100% deterministic ground truth based on verified database state rather than probabilistic predictions.
+
+
 
 
 

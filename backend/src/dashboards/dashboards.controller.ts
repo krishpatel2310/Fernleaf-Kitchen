@@ -1,6 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { DashboardsService } from './dashboards.service';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { DashboardDateQueryDto } from './dto/dashboard-query.dto';
 
 @Controller('dashboards')
 export class DashboardsController {
@@ -8,19 +11,25 @@ export class DashboardsController {
 
   @Get('admin')
   @RequirePermissions('dashboard.admin')
-  async getAdminSummary() {
-    return this.dashboardsService.getAdminSummary();
+  async getAdminDashboard(@Query() query: DashboardDateQueryDto) {
+    return this.dashboardsService.getAdminDashboard(query?.date);
   }
 
   @Get('kitchen')
   @RequirePermissions('dashboard.kitchen')
-  async getKitchenSummary(@Query('date') date?: string) {
-    return this.dashboardsService.getKitchenSummary(date);
+  async getKitchenDashboard(@Query() query: DashboardDateQueryDto) {
+    return this.dashboardsService.getKitchenDashboard(query?.date);
   }
 
   @Get('dispatch')
   @RequirePermissions('dashboard.dispatch')
-  async getDispatchSummary(@Query('date') date?: string) {
-    return this.dashboardsService.getDispatchSummary(date);
+  async getDispatchDashboard(@Query() query: DashboardDateQueryDto) {
+    return this.dashboardsService.getDispatchDashboard(query?.date);
+  }
+
+  @Get('driver')
+  @RequirePermissions('dashboard.driver')
+  async getDriverDashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.dashboardsService.getDriverDashboard(user.id);
   }
 }
