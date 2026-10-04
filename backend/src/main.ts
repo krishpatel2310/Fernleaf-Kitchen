@@ -36,7 +36,23 @@ async function bootstrap() {
 
   // CORS configuration
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // Allow configured frontend URL, local development ports, or cloud previews
+      if (
+        frontendUrl === '*' ||
+        origin === frontendUrl ||
+        origin === 'http://localhost:3000' ||
+        origin === 'http://127.0.0.1:3000' ||
+        origin.endsWith('.vercel.app') ||
+        origin.endsWith('.onrender.com') ||
+        origin.endsWith('.railway.app')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],

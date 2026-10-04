@@ -1,235 +1,343 @@
-# Fernleaf Kitchen — Engineering Assignment
+# Fernleaf Kitchen — Commercial Kitchen Operations Admin Panel
 
-Fernleaf Kitchen is a production-grade B2B catering and commercial kitchen management platform engineered with NestJS, Prisma ORM, and PostgreSQL. It delivers end-to-end operational capabilities across 11 core architectural domains:
-1. Multi-tenant Enterprise Architecture & Authentication (RBAC)
-2. Company Management & Corporate Calendars
-3. Hierarchical Master Catalogue (Dishes, Option Groups, Portions, Allergens, Dietary Tags)
-4. Dynamic Pricing Engine & Derivation Rules
-5. Employee Self-Service Carts & Customizations
-6. Operational Cutoff Engine & Automated Confirmations
-7. Kitchen Operations Board & Unit Production
-8. Dispatch Logistics, Drop Grouping & Driver Workflows
-9. Billing, Invoicing & Historical Audit Snapshots
-10. Dynamic Operational Settings & Working Day Calendars
-11. Role-Specific Operational Dashboards (Admin, Kitchen, Dispatch, Driver)
+Fernleaf Kitchen is a production-grade B2B corporate catering and commercial kitchen operations platform built to fulfill the Heizen Engineering Assignment specifications. 
+
+The system enables corporate clients to run employee meal programs where staff order individual boxed meals for scheduled delivery dates, and the commercial kitchen cooks, packs, batches, and delivers them to corporate offices. All workflows run through an internal operations panel supporting dedicated roles for **Admin**, **Kitchen Staff**, **Dispatchers**, and **Drivers**.
 
 ---
 
-## Operational Dashboards (Phase 11)
+## 1. Technology Stack & Architectural Principles
 
-Role-specific operational dashboards provide real-time, decision-grade visibility for each operational group. All calculations and derived values are computed authoritatively on the backend, ensuring that frontend views remain purely presentational without recreating complex business rules.
-
-### Server-Side Access Control (RBAC)
-All dashboard APIs are secured using server-side permission decorators and guards:
-- `GET /api/dashboards/admin`: Requires `dashboard.admin` permission.
-- `GET /api/dashboards/kitchen?date=YYYY-MM-DD`: Requires `dashboard.kitchen` permission.
-- `GET /api/dashboards/dispatch?date=YYYY-MM-DD`: Requires `dashboard.dispatch` permission.
-- `GET /api/dashboards/driver`: Requires `dashboard.driver` permission. Strictly scoped to the authenticated driver's JWT identity.
-
----
-
-### Dashboard 1: Admin Operational Overview
-
-Provides executive and administrative visibility across orders, kitchen risk, dispatch throughput, billing status, and system configuration health.
-
-#### Metrics Included:
-- **Orders Overview**:
-  - `totalOrdersToday`: Total orders recorded with `deliveryDate` matching today in `Asia/Kolkata`.
-  - `operationalOrdersToday`: Current confirmed operational demand (`CONFIRMED`). Strictly excludes completed `DELIVERED`, `DRAFT`, unconfirmed `PLACED`, `CANCELLED`, and `REJECTED`.
-  - `confirmedOrdersToday`: Confirmed active orders for today.
-  - `placedOrdersToday`: Placed orders awaiting cutoff confirmation.
-  - `draftOrdersToday`: Unplaced drafts/carts for today.
-  - `deliveredOrdersToday`: Completed deliveries for today.
-  - `cancelledOrdersToday`: Cancelled orders for today (isolated; never counted in active workload).
-  - `rejectedOrdersToday`: Rejected orders for today.
-
-> [!NOTE]
-> **Operational Orders vs Delivered Orders Semantic Distinction:**
-> - `operationalOrdersToday`: Represents current confirmed operational demand for today's delivery date (`status = CONFIRMED`). Measures active workload requiring kitchen preparation and dispatch delivery. Strictly excludes completed `DELIVERED`, `DRAFT`, unconfirmed `PLACED`, `CANCELLED`, and `REJECTED` orders.
-> - `deliveredOrdersToday`: Represents completed delivery fulfillment activity (`status = DELIVERED`). Completed deliveries are no longer active operational work and belong exclusively in completed delivery reporting.
-
-- **Kitchen Risk**:
-  - `totalKitchenUnits`: Total distinct production units for confirmed orders today.
-  - `kitchenUnitsCompleted`: Units in `DONE` status.
-  - `kitchenUnitsRemaining`: Remaining units in `NOT_STARTED` or `IN_PROGRESS`.
-  - `lateUnitsCount`: Incomplete units past planned ready time (`getTimingStatus === 'LATE'`).
-  - `atRiskUnitsCount`: Incomplete units within 15 minutes of ready time (`getTimingStatus === 'AT_RISK'`).
-  - `onTrackUnitsCount`: Incomplete units with $> 15$ min lead time (`getTimingStatus === 'ON_TRACK'`).
-  - `confirmedOrdersWithKitchenPending`: Confirmed orders where kitchen work is not fully complete (`kitchenReadyAt IS NULL`).
-  - `overallKitchenStatus`: Overall kitchen health (`LATE`, `AT_RISK`, `COMPLETED`, `ON_TRACK`).
-- **Dispatch Overview**:
-  - `totalDropsToday`: Total scheduled delivery drops for today.
-  - `kitchenReadyDrops`: Drops in `KITCHEN_READY` awaiting dispatch staging.
-  - `dispatchReadyDrops`: Drops in `DISPATCH_READY` staged for loading.
-  - `outForDeliveryDrops`: Drops in `OUT_FOR_DELIVERY` en route.
-  - `deliveredDrops`: Drops completed today.
-  - `unassignedDropsCount`: Active drops (`status != DELIVERED`) lacking an assigned driver (`driverId = null`).
-  - `assignedDropsCount`: Drops assigned to a delivery driver.
-- **Billing Overview**:
-  - `uninvoicedConfirmedOrderCount`: Confirmed orders not yet placed on an invoice.
-  - `uninvoicedConfirmedTotalCents`: Integer cents sum of uninvoiced confirmed orders.
-  - `issuedInvoiceCount`: Count of invoices in `ISSUED` (unpaid) status.
-  - `issuedInvoiceTotalCents`: Total integer cents of unpaid issued invoices.
-  - `paidInvoiceCount`: Count of paid invoices.
-  - `paidInvoiceTotalCents`: Total integer cents collected from paid invoices.
-  - `invoicesWithAdjustmentsCount`: Issued invoices containing post-issuance order price changes or order cancellations.
-- **Configuration & Operational Health**:
-  - `cutoffTime`: Kitchen order cutoff time (e.g. `16:00`).
-  - `cutoffWorkingDaysCount`: Number of prior working days for order cutoff (e.g. `1`).
-  - `kitchenTimezone`: Standardized timezone (`Asia/Kolkata`).
-  - `activeWorkingDays`: Days of the week marked as working for the kitchen.
-  - `upcomingHolidaysCount`: Scheduled kitchen holidays on or after today.
-  - `activeCompaniesCount`: Count of active corporate client accounts.
+| Layer | Mandated Technology | Details & Justification |
+| :--- | :--- | :--- |
+| **Frontend** | **Next.js 16** (App Router, Turbopack) | Modern, responsive React 19 UI with Tailwind CSS v4, Lucide icons, role-based client routing, and unified session management. |
+| **Backend** | **NestJS 10** | Modular architecture with declarative DTO validation (`class-validator`), dependency injection, custom RBAC guards, and structured logging. |
+| **ORM** | **Prisma 6** | Type-safe database queries, declarative migrations, connection pooling, and relational integrity. |
+| **Database** | **PostgreSQL** | ACID-compliant relational storage ensuring strict transaction safety and relational constraints. |
+| **Interface Boundary** | **HTTP REST API** | Strictly enforced separation. The Next.js frontend interacts with the NestJS API purely via authenticated HTTP requests (`/api/*`). **Zero direct Prisma or database access from the frontend, and zero Next.js Server Actions bypassing the API.** |
+| **Security & RBAC** | **JWT & Capability Permissions** | Stateless Bearer token authentication with server-side permission-driven guards (`@RequirePermissions`). |
+| **Financial Accuracy** | **Integer Minor Units (Cents)** | All prices, line items, and totals are computed and stored as integer cents to eliminate floating-point arithmetic errors. Derived prices round **UP** to the nearest $0.05 (5 cents). |
+| **Timezone Basis** | **`Asia/Kolkata` (IST, UTC+05:30)** | Single authoritative kitchen timezone governing order cutoff calculations, delivery dates, and real-time dashboard date filtering regardless of server or browser location. |
 
 ---
 
-### Dashboard 2: Kitchen Production Board
+## 2. Seeded Test Accounts
 
-Answers: *"What needs to be prepared, where is it, and what is at risk?"*
+The database comes pre-seeded with realistic operational data and the four required accounts with identical credentials (`Test@1234`):
 
-#### Metrics Included:
-- **Workload Summary**:
-  - `totalConfirmedOrders`: Count of confirmed orders contributing to production.
-  - `totalUnits`: Total kitchen units (distinct order combinations) for the target date.
-  - `unitsNotStarted`: Units in `NOT_STARTED`.
-  - `unitsInProgress`: Units currently being prepped (`IN_PROGRESS`).
-  - `unitsDone`: Units completed (`DONE`).
-  - `completedUnits`: Equal to `unitsDone`.
-  - `lateUnits`: Active units past planned ready time.
-  - `atRiskUnits`: Active units within 15 minutes of planned ready time.
-  - `onTrackUnits`: Active units with comfortable lead time.
-  - `overallKitchenStatus`: Authoritative status (`LATE` / `AT_RISK` / `COMPLETED` / `ON_TRACK`).
-- **Station Workload Breakdown** (`stationWorkload`):
-  - Per active kitchen station (e.g. Hot Station, Cold Station, Dessert Station):
-    - `stationId`, `stationName`, `totalUnits`, `notStarted`, `inProgress`, `done`, `late`, `atRisk`, `onTrack`.
-- **Unassigned Station Workload** (`unassignedStationWorkload`):
-  - Explicitly categorizes units for dishes that do not have an assigned station (`stationId: "unassigned"`).
-- **Urgent Units List** (`urgentUnits`):
-  - Prioritized list of the top 20 late and at-risk units showing order number, company, dish name, quantity, station, delivery time, and delay minutes.
+| Role | Email | Password | Permissions & System Scope |
+| :--- | :--- | :--- | :--- |
+| **Admin** | `admin@test.com` | `Test@1234` | Full platform capabilities: catalogue, pricing tiers, companies, employees, orders, overrides, billing/invoicing, kitchen settings, admin overview dashboard. |
+| **Kitchen** | `kitchen@test.com` | `Test@1234` | Production board, station filtering, kitchen units start/finish, force-completion, kitchen triage dashboard. Read-only on all other entities. |
+| **Dispatch** | `dispatch@test.com` | `Test@1234` | Logistics board, automatic drop grouping, manual driver assignment, status transitions (`DISPATCH_READY` $\to$ `OUT_FOR_DELIVERY`), dispatch dashboard. |
+| **Driver** | `driver@test.com` | `Test@1234` | Mobile-optimized delivery route for **today only**, scoped strictly to own assigned drops. Mark delivered with proof note/photo, driver performance dashboard. |
 
 ---
 
-### Dashboard 3: Dispatch & Logistics Board
+## 3. High-Level Architecture & Data Flow
 
-Answers: *"What is ready to leave, who is driving it, and what deliveries are currently in progress?"*
+```mermaid
+flowchart TD
+    subgraph ClientLayer["Frontend Layer (Next.js 16 on :3000)"]
+        UI["Web Browser / Mobile View"]
+        ClientAuth["Auth Context & Role Routing"]
+        ApiClient["REST HTTP Client (src/lib/api.ts)"]
+        UI --> ClientAuth --> ApiClient
+    end
 
-#### Metrics Included:
-- **Drop Lifecycle Summary**:
-  - `totalDrops`: Total delivery drops scheduled for the date.
-  - `totalOrdersInDrops`: Total customer orders aggregated into drops.
-  - `kitchenReadyDrops`: Drops waiting for kitchen completion or staging (`KITCHEN_READY`).
-  - `dispatchReadyDrops`: Drops packed and ready for departure (`DISPATCH_READY`).
-  - `outForDeliveryDrops`: Drops currently on the road (`OUT_FOR_DELIVERY`).
-  - `deliveredDrops`: Completed drops (`DELIVERED`).
-  - `unassignedDropsCount`: Drops lacking an assigned driver.
-  - `assignedDropsCount`: Drops with a designated driver.
-- **Unassigned Drops Action List** (`unassignedActionList`):
-  - Actionable list of drops requiring immediate driver assignment:
-    - `dropId`, `companyName`, `deliveryAddress`, `deliveryTimeMinutes`, `formattedDeliveryTime`, `orderCount`, `status`.
-- **Active En-Route Deliveries** (`activeDeliveries`):
-  - Live tracking of in-transit drops:
-    - `dropId`, `companyName`, `driverName`, `driverEmail`, `formattedDeliveryTime`, `outForDeliveryAt`, `orderCount`.
+    subgraph ApiLayer["Backend Layer (NestJS 10 on :4000)"]
+        HTTP["HTTP REST API (/api/*)"]
+        Guards["JwtAuthGuard & PermissionsGuard"]
+        Modules["Domain Services"]
+        
+        subgraph Domains["Core Domain Modules"]
+            AuthMod["Auth / RBAC"]
+            CatMod["Catalogue & Menu"]
+            PriceMod["Pricing Engine"]
+            OrderMod["Orders & Cutoff Engine"]
+            KitchMod["Kitchen Operations"]
+            DispMod["Dispatch & Driver Logistics"]
+            BillMod["Billing & Invoicing"]
+            SetMod["Kitchen Settings"]
+            DashMod["Operational Dashboards"]
+        end
+        
+        HTTP --> Guards --> Modules
+        Modules --> Domains
+    end
 
----
+    subgraph DataLayer["Persistence Layer (PostgreSQL)"]
+        Prisma["Prisma ORM Client"]
+        Postgres[("PostgreSQL Database")]
+        Domains --> Prisma --> Postgres
+    end
 
-### Dashboard 4: Driver Daily Route & Deliveries
-
-An intentionally narrow, high-security dashboard scoped strictly to the authenticated driver.
-
-#### Security & Scoping:
-- Identity is derived strictly from the driver's JWT token (`req.user.id`).
-- Query parameters (e.g. `?driverId=...`) are completely ignored to prevent spoofing.
-- Scoped strictly to today's date in `Asia/Kolkata`.
-
-#### Metrics Included:
-- **Daily Route Summary**:
-  - `todayAssignedDrops`: Total drops assigned to this driver for today.
-  - `pendingDeliveries`: Assigned drops not yet completed.
-  - `outForDeliveryCount`: Assigned drops currently en route.
-  - `deliveredCount`: Drops delivered today.
-  - `onTimeCount`: Delivered drops where `deliveredAt <= scheduledDeliveryTime` (`isOnTime = true`).
-  - `lateCount`: Delivered drops completed after scheduled time (`isOnTime = false`).
-- **Next Delivery** (`nextDelivery`):
-  - The driver's immediate next drop (first non-delivered drop ordered chronologically):
-    - `dropId`, `companyName`, `deliveryAddress`, `formattedDeliveryTime`, `driverInstructions`, `ordersCount`, `status`.
-- **Delivery Itinerary** (`deliveries`):
-  - Ordered chronological list of all drops assigned to the driver today with addresses, standing instructions, order counts, status, and on-time result.
+    ApiClient -- "HTTP / JSON Bearer Token (CORS)" --> HTTP
+```
 
 ---
 
-## Detailed Metric Definitions
+## 4. Entity Relationship Diagram (Domain Model)
 
-| Dashboard | Metric Name | Meaning | Why It Exists | Exact Calculation | Date/Time Basis | Included Statuses | Excluded Statuses | Treatment of Cancelled Orders | Treatment of Missing Data | State Type |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Admin** | `totalOrdersToday` | All orders recorded for today | Volume indicator | `count(Order where deliveryDate = date)` | `deliveryDate` (`Asia/Kolkata`) | All statuses | Other dates | Counted in total | `0` if empty | Live DB State |
-| **Admin** | `operationalOrdersToday` | Confirmed operational demand | Active production planning | `count(Order where deliveryDate = date and status = CONFIRMED)` | `deliveryDate` (`Asia/Kolkata`) | `CONFIRMED` | `DRAFT`, `PLACED`, `CANCELLED`, `REJECTED`, `DELIVERED` | Strictly excluded | `0` if empty | Live DB State |
-| **Admin** | `confirmedOrdersToday` | Confirmed orders today | Active production | `count(Order where deliveryDate = date and status = CONFIRMED)` | `deliveryDate` (`Asia/Kolkata`) | `CONFIRMED` | All others | Excluded | `0` | Live DB State |
-| **Admin** | `placedOrdersToday` | Unconfirmed pipeline | Pipeline monitoring | `count(Order where deliveryDate = date and status = PLACED)` | `deliveryDate` (`Asia/Kolkata`) | `PLACED` | All others | Excluded | `0` | Live DB State |
-| **Admin** | `draftOrdersToday` | Incomplete carts | Cart abandonment | `count(Order where deliveryDate = date and status = DRAFT)` | `deliveryDate` (`Asia/Kolkata`) | `DRAFT` | All others | Excluded | `0` | Live DB State |
-| **Admin** | `deliveredOrdersToday` | Completed orders today | Completion tracking | `count(Order where deliveryDate = date and status = DELIVERED)` | `deliveryDate` (`Asia/Kolkata`) | `DELIVERED` | All others | Excluded | `0` | Live DB State |
-| **Admin** | `cancelledOrdersToday` | Cancelled orders today | Churn tracking | `count(Order where deliveryDate = date and status = CANCELLED)` | `deliveryDate` (`Asia/Kolkata`) | `CANCELLED` | All others | Counted here only | `0` | Live DB State |
-| **Admin** | `rejectedOrdersToday` | Rejected orders today | Exception tracking | `count(Order where deliveryDate = date and status = REJECTED)` | `deliveryDate` (`Asia/Kolkata`) | `REJECTED` | All others | Excluded | `0` | Live DB State |
-| **Admin** | `totalKitchenUnits` | Units for confirmed orders | Kitchen workload | `count(KitchenUnit where order.status = CONFIRMED and order.deliveryDate = date)` | `deliveryDate` (`Asia/Kolkata`) | `CONFIRMED` | Unconfirmed, cancelled | Excluded | `0` | Live DB State |
-| **Admin** | `kitchenUnitsRemaining` | Remaining kitchen units | Production backlog | `totalKitchenUnits - kitchenUnitsCompleted` | `deliveryDate` (`Asia/Kolkata`) | `NOT_STARTED`, `IN_PROGRESS` | `DONE` | Excluded | `0` | Derived State |
-| **Admin** | `lateUnitsCount` | Units past ready time | Escalation alerting | Incomplete units with `timingStatus = LATE` | Planned ready time vs `now` | Incomplete past ready | `DONE`, on-track | Excluded | `0` | Derived State |
-| **Admin** | `atRiskUnitsCount` | Units near ready time | Pre-emptive risk alert | Incomplete units with `timingStatus = AT_RISK` | Planned ready time vs `now` | Incomplete $\le 15$ min | `DONE` | Excluded | `0` | Derived State |
-| **Admin** | `overallKitchenStatus` | Dominant kitchen health | High-level status | `LATE` > `AT_RISK` > `COMPLETED` > `ON_TRACK` | Planned ready time vs `now` | Confirmed units | Non-confirmed | Excluded | `ON_TRACK` | Derived State |
-| **Admin** | `totalDropsToday` | Drops scheduled today | Fleet volume | `count(Drop where deliveryDate = date)` | `deliveryDate` (`Asia/Kolkata`) | All drop statuses | Other dates | Excluded from active | `0` | Live DB State |
-| **Admin** | `unassignedDropsCount` | Active drops without driver | Driver assignment gap | `count(Drop where driverId IS NULL and status != DELIVERED)` | `deliveryDate` (`Asia/Kolkata`) | `KITCHEN_READY`, `DISPATCH_READY`, `OUT_FOR_DELIVERY` | `DELIVERED`, assigned | Excluded | `0` | Live DB State |
-| **Admin** | `uninvoicedConfirmedOrderCount` | Unbilled confirmed orders | Unbilled pipeline | `count(Order where status = CONFIRMED and invoiceEntry IS NULL)` | Current database state | `CONFIRMED` without invoice | Invoiced orders | Excluded | `0` | Live DB State |
-| **Admin** | `uninvoicedConfirmedTotalCents` | Unbilled confirmed amount | Unbilled value (cents) | `sum(Order.totalCents where status = CONFIRMED and invoiceEntry IS NULL)` | Current database state | `CONFIRMED` without invoice | Invoiced orders | Excluded | `0` | Live DB State |
-| **Admin** | `issuedInvoiceCount` | Unpaid invoices | Receivables volume | `count(Invoice where status = ISSUED)` | Current database state | `ISSUED` | `PAID`, `CANCELLED` | Excluded | `0` | Live DB State |
-| **Admin** | `issuedInvoiceTotalCents` | Unpaid invoices amount | Receivables value (cents) | `sum(Invoice.totalCents where status = ISSUED)` | Current database state | `ISSUED` | `PAID`, `CANCELLED` | Preserved in snapshot | `0` | Snapshot Total |
-| **Admin** | `paidInvoiceTotalCents` | Collected invoices amount | Cash collected (cents) | `sum(Invoice.totalCents where status = PAID)` | Current database state | `PAID` | `ISSUED`, `CANCELLED` | Preserved in snapshot | `0` | Snapshot Total |
-| **Admin** | `invoicesWithAdjustmentsCount` | Discrepant invoices | Audit backlog | Invoices with post-issue order mutations or cancellations | Current vs snapshot | `ISSUED` with mismatches | Clean invoices | Invoiced cancelled trigger flag | `0` | Derived Audit Flag |
-| **Kitchen** | `stationWorkload` | Workload by station | Staffing & pacing | Grouped unit statuses per kitchen station | `deliveryDate` (`Asia/Kolkata`) | Confirmed units | Unconfirmed | Excluded | Unassigned station grouped | Live DB & Derived |
-| **Kitchen** | `urgentUnits` | Top 20 late/at-risk units | Kitchen triage list | Incomplete units sorted by delivery time where late/at-risk | Planned ready time vs `now` | Active late/at-risk | `DONE`, on-track | Excluded | Empty array `[]` | Priority List |
-| **Dispatch** | `unassignedActionList` | Actionable unassigned drops | Dispatch action | Drops where `driverId IS NULL` and `status != DELIVERED` | `deliveryDate` (`Asia/Kolkata`) | Active unassigned drops | Assigned, delivered | Excluded | Empty array `[]` | Actionable List |
-| **Dispatch** | `activeDeliveries` | En-route deliveries | Fleet monitoring | Drops where `status = OUT_FOR_DELIVERY` | `deliveryDate` (`Asia/Kolkata`) | `OUT_FOR_DELIVERY` | All others | Excluded | Empty array `[]` | Transit List |
-| **Driver** | `todayAssignedDrops` | Assigned drops for driver | Driver daily workload | `count(Drop where driverId = jwt.userId and deliveryDate = today)` | `deliveryDate` (`Asia/Kolkata`) | Authenticated driver's drops | Other drivers' drops | Excluded | `0` | JWT-Scoped State |
-| **Driver** | `pendingDeliveries` | Assigned drops pending | Driver remaining stops | Drops assigned to driver with `status != DELIVERED` | `deliveryDate` (`Asia/Kolkata`) | Incomplete assigned drops | `DELIVERED` | Excluded | `0` | JWT-Scoped State |
-| **Driver** | `onTimeCount` | On-time deliveries | On-time delivery metric | Drops assigned to driver with `status = DELIVERED and isOnTime = true` | `deliveredAt <= scheduledDeliveryTime` | `DELIVERED` on time | Late deliveries, pending | Excluded | `0` | Authoritative History |
-| **Driver** | `lateCount` | Late deliveries | Delivery delay metric | Drops assigned to driver with `status = DELIVERED and isOnTime = false` | `deliveredAt > scheduledDeliveryTime` | `DELIVERED` late | On-time, pending | Excluded | `0` | Authoritative History |
-| **Driver** | `nextDelivery` | Immediate next drop | Turn-by-turn clarity | First drop with `status != DELIVERED` ordered by delivery time | `deliveryDate` (`Asia/Kolkata`) | First pending/out-for-delivery | `DELIVERED` | Excluded | `null` if all complete | Scoped Next |
+```mermaid
+erDiagram
+    Company ||--o{ Employee : employs
+    Company ||--o{ CompanyDeliveryAddress : has
+    Company ||--o{ CompanyEmailDomain : owns
+    Company ||--o{ CompanyWorkingDay : defines
+    Company ||--o{ CompanyHoliday : schedules
+    Company ||--o| PriceTier : assigned_to
+    Company ||--o{ Order : places
+    Company ||--o{ Drop : receives
+    Company ||--o{ Invoice : billed_to
 
----
+    Employee ||--o{ Order : creates_for
+    Employee }o--o{ EmployeeAllergen : has
+    Employee }o--o{ EmployeeDietaryTag : prefers
 
-## Intentionally Omitted Metrics
+    Dish }o--|| KitchenStation : routed_to
+    Dish ||--o{ DishOptionGroup : configures
+    OptionGroup ||--o{ DishOptionGroup : belongs_to
+    OptionGroup ||--o{ Option : offers
+    OptionGroup }o--o| PortionSize : uses
 
-The following metrics were intentionally excluded from operational dashboards:
-1. **Employee Payroll / Wage Calculations**: Out of scope. Fernleaf Kitchen is a B2B catering service billing corporate clients, not a payroll processor.
-2. **Gross Profit Margin & Raw Ingredient Costing**: Out of scope. Raw food procurement, supplier invoices, inventory wastage, and kitchen overhead are not modeled in the assignment domain.
-3. **Tax & GST Breakdown on Dashboard**: Out of scope. Billing mandates integer-cents subtotal invoices; external tax engines are omitted per assignment specifications.
-4. **Customer Acquisition Cost (CAC) & Marketing Funnels**: Out of scope. Marketing and lead-generation metrics do not serve daily commercial kitchen operations.
-5. **General Ledger & Banking Reconciliation**: Out of scope. Operational dashboards reflect internal order and invoice states; multi-entry ledger accounting belongs in external enterprise accounting systems.
-6. **Individual Employee Kitchen Productivity Scoring**: Omitted to prevent ungrounded or arbitrary micro-performance tracking not specified by the hiring assignment.
-7. **Predictive Machine Learning Forecasting**: Omitted because operational dashboards must provide 100% deterministic ground truth based on verified database state rather than probabilistic predictions.
+    PriceTier ||--o{ DishPrice : sets
+    PriceTier ||--o{ OptionPrice : sets
+
+    Order ||--o{ OrderLine : contains
+    OrderLine ||--o{ OrderCombination : splits_into
+    OrderCombination ||--o{ KitchenUnit : produces
+    Order ||--o{ OrderEvent : logs
+    
+    Drop ||--o{ DropOrder : aggregates
+    Order ||--o{ DropOrder : grouped_in
+    Drop ||--o| DeliveryRecord : completed_with
+    User ||--o{ Drop : assigned_driver
+
+    Invoice ||--o{ InvoiceOrder : covers
+    Order ||--o| InvoiceOrder : billed_in
+
+    User ||--|| Role : has
+    Role ||--o{ RolePermission : grants
+    Permission ||--o{ RolePermission : assigned
+```
 
 ---
 
-## Running the Application & Verification
+## 5. Local Setup & Quick Start
 
+### Prerequisites
+- **Node.js**: v20.x, v22.x, or v24.x
+- **npm**: v10+
+- **PostgreSQL**: v14+ running locally or remotely (e.g. `localhost:5432`)
+
+### 1. Repository Setup & Dependencies
 ```bash
-# Install dependencies
+# Clone the repository
+git clone <repo-url>
+cd Fernleaf-Kitchen
+
+# Install backend dependencies
+cd backend
 npm install
 
-# Run database migrations and seed
+# Install frontend dependencies
+cd ../frontend
+npm install
+cd ..
+```
+
+### 2. Environment Configuration
+
+**Backend (`backend/.env`):**
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/fernleaf?schema=public"
+PORT=4000
+NODE_ENV="development"
+KITCHEN_TIMEZONE="Asia/Kolkata"
+JWT_SECRET="fernleaf-dev-secret-key-change-in-production-min32chars"
+JWT_EXPIRES_IN="7d"
+FRONTEND_URL="http://localhost:3000"
+```
+
+**Frontend (`frontend/.env.local` or `frontend/.env`):**
+```env
+NEXT_PUBLIC_API_URL="http://localhost:4000/api"
+```
+
+### 3. Database Migration & Realistic Seeding
+```bash
+cd backend
+
+# Apply Prisma database migrations
 npx prisma migrate deploy
+
+# Run the idempotent database seed
 npx prisma db seed
+```
 
-# Run linting and build
-npm run lint
-npm run build
+### 4. Running the Application
 
-# Run comprehensive unit tests (230 tests across 15 suites)
+**Run Backend (Terminal 1):**
+```bash
+cd backend
+npm run start:dev
+# Backend listening at http://localhost:4000/api
+# Health probe available at http://localhost:4000/api/health
+```
+
+**Run Frontend (Terminal 2):**
+```bash
+cd frontend
+npm run dev
+# Frontend accessible at http://localhost:3000
+```
+
+---
+
+## 6. Key Domain Decisions & Implementation Rules
+
+### 6.1 Catalogue & Reusable Options
+- **Soft Deactivation**: Dishes are deactivated via `isActive: false` rather than deleted, guaranteeing that historical orders always retain relational references.
+- **Reusable Options**: Options (e.g. *Jeera Rice*, *Paneer*, *Raita*) exist as independent catalogue entities with their own cost price, allergens, and dietary tags, reusable across dishes.
+- **Portion Multipliers**: Option groups specify whether portions apply; if enabled, options carry portion adjustment pricing.
+
+### 6.2 Menu Visibility & Previews
+- **Company Filtering**: Dishes and menu categories can be selectively hidden from individual corporate clients.
+- **Secret Categories**: Categories marked `isSecret: true` are excluded from standard category listings but remain accessible via direct URL navigation.
+- **Employee Preview**: Admin staff can preview the exact menu visible to any specific employee, resolving company-specific hiding and custom pricing tiers.
+
+### 6.3 Dynamic Pricing Engine
+- **Hierarchical Tier Fallback**: If a company does not specify a custom price tier, the engine falls back to the system `default` tier. If a dish lacks an explicit price on that tier, it is omitted from the employee's menu (never displayed as $0.00).
+- **Price Derivation Rules**:
+  - `COST_MULTIPLIER`: Multiplies dish cost price by basis points (`ruleValueBps: 24000` $\implies 2.4\times$).
+  - `PERCENTAGE_MARKUP`: Adds or subtracts percentage from another tier (`ruleValueBps: 1500` $\implies +15\%$).
+- **$0.05 Ceiling Rounding**: All derived prices round **up** to the next 5-cent increment ($2.11 becomes $2.15). Implemented using exact integer modulo arithmetic: `cents + (5 - (cents % 5))`.
+- **Price Changes Immutability**: Modifying catalogue prices affects new orders only; past orders are never recalculated.
+
+### 6.4 Company & Employee Multi-Tenancy
+- **Email Domain Isolation**: Companies register one or more corporate domains. Public email providers (`gmail.com`, `yahoo.com`, `outlook.com`, etc.) are rejected. Two companies cannot claim the same domain.
+- **Separate Calendars**:
+  - **Company Calendar**: Governs whether a company accepts deliveries on a given date.
+  - **Kitchen Calendar**: Governs order cutoff calculations and kitchen production schedules. A company holiday does **not** move the kitchen cutoff.
+- **Employee Transfers**: Moving an employee to a new company immediately re-binds their available delivery addresses, default times, applicable pricing tier, and company menu exclusions.
+
+### 6.5 Orders & Combination Invariant
+- **The Combination Invariant**: An order line quantity of $N$ can be split across multiple option configurations (e.g. 10 Paneer Bowls: 6 with Brown Rice, 4 with Jeera Rice). The server enforces:
+  $$\sum \text{combination.quantity} = \text{line.quantity}$$
+- **Option Validation**: Every combination must satisfy all required option groups, and every selected option must belong to the permitted group.
+- **Minimum Order Quantity (MOQ)**: Enforced per dish line item.
+- **Historical Snapshots**: Every order line and combination stores immutable snapshots of dish name, SKU, unit price, selected option names, option prices, packaging, address snapshot, and company context.
+
+### 6.6 Operational Cutoff Engine
+- **Lead Time Calculation**: Calculated backwards from scheduled delivery date using configured kitchen working days and skipping kitchen holidays.
+- **Example**: A Wednesday delivery with a 2-working-day lead time and a 16:00 cutoff locks at **Monday 16:00**.
+- **Automated Processing**:
+  - `DRAFT` $\to$ `CANCELLED`
+  - `PLACED` $\to$ `CONFIRMED` (becomes billable)
+- **Reviewer Manual Trigger**: Endpoint `POST /api/orders/process-cutoffs` allows reviewers to trigger processing on demand without waiting.
+
+### 6.7 Kitchen Board & Workload Management
+- **Unit Production**: Each distinct combination represents exactly one production `KitchenUnit`.
+- **Station Routing**: Units route to their dish's assigned station, or to `Unassigned` if none is configured.
+- **Timing Formulas**:
+  $$\text{dispatch-ready} = \text{delivery time} - \text{company delivery minutes before}$$
+  $$\text{planned kitchen-ready} = \text{dispatch-ready} - 30\text{ minutes}$$
+- **State Progression**: `NOT_STARTED` $\to$ `IN_PROGRESS` $\to$ `DONE`. Finishing an unstarted unit automatically records a start timestamp. The order's `kitchenStartedAt` is set when the first unit begins; `kitchenReadyAt` is stamped when all units are `DONE`.
+
+### 6.8 Dispatch Drops & Driver Workflow
+- **Idempotent Drop Grouping**: Orders are grouped into delivery drops by:
+  $$\text{Same Company} + \text{Same Delivery Address} + \text{Exact Delivery Time}$$
+- **Driver Scoping**: Drivers see **only** their own assigned drops for **today's date**, ordered chronologically.
+- **Delivery Proof**: Drivers record delivery with optional notes and photo URL references. On-time performance is recorded deterministically (`deliveredAt <= scheduledDeliveryTime`).
+
+### 6.9 Billing & Invoicing
+- **One Invoice Per Order**: Confirmed uninvoiced orders can be grouped into an invoice. An order can belong to at most one invoice.
+- **Immutable Financial Snapshot**: Invoices snapshot order totals in integer cents.
+- **Post-Invoice Mismatch Auditing**: If an invoiced order is cancelled or overridden, the invoice snapshot is preserved, and the invoice is flagged with `hasAdjustments: true` and `totalAdjustmentDifferenceCents` for administrative review.
+
+---
+
+## 7. Operational Dashboards & Metric Definitions
+
+All dashboards compute metrics authoritatively on the backend. Frontend pages display these figures without client-side business logic.
+
+| Dashboard | Metric | Exact Calculation / Logic | Statuses Included | Statuses Excluded |
+| :--- | :--- | :--- | :--- | :--- |
+| **Admin** | `operationalOrdersToday` | Count of orders with `deliveryDate = today` and `status = CONFIRMED`. Measures active operational production demand. | `CONFIRMED` | `DELIVERED`, `DRAFT`, `PLACED`, `CANCELLED`, `REJECTED` |
+| **Admin** | `deliveredOrdersToday` | Count of orders with `deliveryDate = today` and `status = DELIVERED`. Represents completed fulfillment. | `DELIVERED` | All other statuses |
+| **Admin** | `lateUnitsCount` | Incomplete kitchen units where current time exceeds planned ready time. | Incomplete past ready | `DONE`, on-track |
+| **Admin** | `atRiskUnitsCount` | Incomplete kitchen units within 15 minutes of planned ready time. | Incomplete $\le 15$ min | `DONE`, on-track |
+| **Admin** | `unassignedDropsCount` | Scheduled drops today where `driverId IS NULL` and `status != DELIVERED`. | Active unassigned | `DELIVERED`, assigned |
+| **Admin** | `uninvoicedConfirmedTotalCents` | Sum of `totalCents` for confirmed orders not yet assigned to an invoice. | Confirmed uninvoiced | Invoiced orders |
+| **Kitchen** | `stationWorkload` | Aggregated unit counts (`totalUnits`, `notStarted`, `inProgress`, `done`, `late`, `atRisk`) grouped by station. | Confirmed units | Unconfirmed orders |
+| **Kitchen** | `urgentUnits` | Top 20 late or at-risk units sorted by scheduled delivery time. | Active late/at-risk | `DONE`, on-track |
+| **Dispatch** | `unassignedActionList` | Action list of unassigned drops requiring driver assignment. | Active unassigned | Assigned drops |
+| **Driver** | `todayAssignedDrops` | Drops assigned to the authenticated driver for today (`driverId = jwt.userId`). | Assigned to driver | Other drivers' drops |
+| **Driver** | `onTimeCount` | Delivered drops where `deliveredAt <= scheduledDeliveryTime`. | `DELIVERED` on time | Late deliveries |
+
+---
+
+## 8. Prioritization & Ambiguity Interpretations
+
+### 8.1 What Was Built
+- Full implementation of all **[Must]** functional requirements across Catalogue, Menu, Pricing, Companies, Employees, Orders, Cutoff, Kitchen, Dispatch, Billing, Settings, and Dashboards.
+- Full Next.js 16 frontend covering operational screens for Admin, Kitchen, Dispatch, and Driver roles.
+- Portion sizes and portion pricing adjustment from **[Should]** requirements.
+- Full server-side RBAC and capability permissions with zero role checks in business logic.
+
+### 8.2 What Was Skipped & Why
+1. **Employee CSV Bulk Import [Should]**: Prioritized end-to-end operational correctness (order combinations, cutoff calculation, dispatch grouping, billing) over batch user onboarding.
+2. **Customer-Facing Mobile App**: Explicitly out of scope per assignment Section 1. Staff create orders on behalf of employees in the admin panel.
+3. **External Accounting / Tax / Payroll Integration**: Explicitly out of scope per assignment Section 5. Invoices are internal records; totals are pre-tax integer cents.
+4. **Kitchen Recipe / Inventory Costing**: Explicitly out of scope. Cost prices are entered manually in the catalogue.
+
+### 8.3 Ambiguity Resolutions
+- **Employee Delivery Addresses**: The assignment defines company delivery addresses but does not specify individual employee address books. Employees choose from their company's approved delivery addresses, and the selected address is snapshotted onto the order.
+- **Post-Invoice Modifications**: Invoiced orders that are subsequently cancelled or modified retain their invoice snapshot; the system flags the invoice with `hasAdjustments: true` and computes discrepancy totals rather than silently rewriting issued invoices.
+- **Kitchen vs Company Holidays**: Confirmed that company holidays prevent delivery to that company on that date, but do **not** shift the kitchen's cutoff schedule. Only kitchen working days and holidays shift the order cutoff.
+
+---
+
+## 9. Comprehensive Verification Suite
+
+Run the full validation suite to verify complete compliance:
+
+```bash
+cd backend
+
+# 1. Prisma schema formatting & validation
+npm run prisma:format
+npx prisma validate
+
+# 2. Backend unit tests (230 tests across 15 suites)
 npm test
 
-# Run e2e tests
+# 3. Backend e2e tests
 npm run test:e2e
 
-# Run live HTTP verification suites
-npx ts-node scripts/verify-phase11.ts
-npx ts-node scripts/verify-phase10.ts
-npx ts-node scripts/verify-phase9.ts
-npx ts-node scripts/verify-phase8.ts
+# 4. Backend linting (0 errors, 0 warnings)
+npm run lint
+
+# 5. Backend production build
+npm run build
+
+# 6. Frontend linting & build
+cd ../frontend
+npm run lint
+npm run build
+cd ../backend
+
+# 7. Seed idempotency test
+npx prisma db seed
+npx prisma db seed
+
+# 8. Phase regression verification suites
+npx ts-node scripts/verify-phase8.ts   # Dispatch & Driver Logistics (26/26 passed)
+npx ts-node scripts/verify-phase9.ts   # Company Billing & Invoicing (26/26 passed)
+npx ts-node scripts/verify-phase10.ts  # Settings & Cutoff Engine (23/23 passed)
+npx ts-node scripts/verify-phase11.ts  # Operational Dashboards (20+/20+ passed)
+
+# 9. Phase 12 Full Integration Smoke Suite
+npx ts-node scripts/verify-integration.ts
 ```

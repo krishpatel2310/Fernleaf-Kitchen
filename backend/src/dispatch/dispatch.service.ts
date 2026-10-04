@@ -1068,4 +1068,32 @@ export class DispatchService {
       updatedAt: drop.updatedAt,
     };
   }
+
+  /**
+   * Returns active users eligible for driver assignment.
+   */
+  async findEligibleDrivers() {
+    return this.prisma.user.findMany({
+      where: {
+        status: UserStatus.ACTIVE,
+        OR: [
+          { role: { name: 'DRIVER' } },
+          {
+            role: {
+              permissions: {
+                some: { permission: { key: 'driver.read_own_deliveries' } },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
 }
+

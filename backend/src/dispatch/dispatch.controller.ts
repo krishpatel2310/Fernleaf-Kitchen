@@ -42,6 +42,12 @@ export class DispatchController {
     return this.dispatchService.generateDropsForDate(dto.date);
   }
 
+  @Get('drivers')
+  @RequirePermissions('dispatch.read')
+  async findEligibleDrivers() {
+    return this.dispatchService.findEligibleDrivers();
+  }
+
   @Get('my-deliveries')
   @RequirePermissions('driver.read_own_deliveries')
   async findDriverDeliveries(
