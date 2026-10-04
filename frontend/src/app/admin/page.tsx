@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Navbar } from '@/components/navbar';
 import { api } from '@/lib/api';
 import {
@@ -110,16 +111,23 @@ export default function AdminDashboardPage() {
             {/* Section A: Orders Overview */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center space-x-2">
-                  <Package className="h-4 w-4 text-emerald-400" />
+                <Link
+                  href="/admin/orders"
+                  className="text-sm font-semibold uppercase tracking-wider text-slate-300 hover:text-white flex items-center space-x-2 group transition"
+                >
+                  <Package className="h-4 w-4 text-emerald-400 group-hover:scale-110 transition" />
                   <span>Orders Today ({data.date})</span>
-                </h2>
+                  <span className="text-[11px] text-emerald-400 font-normal underline ml-2">View Orders &rarr;</span>
+                </Link>
                 <span className="text-xs text-slate-400">Total Recorded: {data.orders.totalOrdersToday}</span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {/* 1. Operational Orders Today */}
-                <div className="bg-slate-900/90 border-2 border-emerald-500/60 rounded-xl p-4 shadow-lg shadow-emerald-950/30">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/90 border-2 border-emerald-500/60 rounded-xl p-4 shadow-lg shadow-emerald-950/30 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">
                     Operational Orders
                   </div>
@@ -127,10 +135,13 @@ export default function AdminDashboardPage() {
                     {data.orders.operationalOrdersToday}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">Active Confirmed Demand</div>
-                </div>
+                </Link>
 
                 {/* 2. Delivered Orders Today */}
-                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-blue-400 uppercase tracking-wider">
                     Delivered Today
                   </div>
@@ -138,10 +149,13 @@ export default function AdminDashboardPage() {
                     {data.orders.deliveredOrdersToday}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">Completed Deliveries</div>
-                </div>
+                </Link>
 
                 {/* 3. Confirmed Orders */}
-                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-teal-400 uppercase tracking-wider">
                     Confirmed
                   </div>
@@ -149,10 +163,13 @@ export default function AdminDashboardPage() {
                     {data.orders.confirmedOrdersToday}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">In Production Cycle</div>
-                </div>
+                </Link>
 
                 {/* 4. Placed Orders */}
-                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">
                     Placed (Pre-Cutoff)
                   </div>
@@ -160,10 +177,13 @@ export default function AdminDashboardPage() {
                     {data.orders.placedOrdersToday}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">Awaiting Cutoff</div>
-                </div>
+                </Link>
 
                 {/* 5. Draft Orders */}
-                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                     Drafts / Carts
                   </div>
@@ -171,10 +191,13 @@ export default function AdminDashboardPage() {
                     {data.orders.draftOrdersToday}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-1">Incomplete Carts</div>
-                </div>
+                </Link>
 
                 {/* 6. Cancelled / Rejected */}
-                <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4">
+                <Link
+                  href="/admin/orders"
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 hover:bg-slate-800/80 transition block"
+                >
                   <div className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">
                     Cancelled / Rejected
                   </div>
@@ -184,18 +207,22 @@ export default function AdminDashboardPage() {
                   <div className="text-[10px] text-slate-400 mt-1">
                     {data.orders.cancelledOrdersToday} Can / {data.orders.rejectedOrdersToday} Rej
                   </div>
-                </div>
+                </Link>
               </div>
             </div>
 
             {/* Section B: Kitchen & Dispatch Throughput */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Kitchen Risk */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
+              <Link
+                href="/kitchen"
+                className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 hover:border-amber-500/50 transition block group"
+              >
                 <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2 group-hover:text-amber-300 transition">
                     <Clock className="h-4 w-4 text-amber-400" />
                     <span>Kitchen Production Risk</span>
+                    <span className="text-[10px] text-amber-400 font-normal underline ml-2">Open Station &rarr;</span>
                   </h3>
                   <span
                     className={`px-2.5 py-1 rounded text-xs font-bold uppercase tracking-wider ${
@@ -234,14 +261,18 @@ export default function AdminDashboardPage() {
                     <div className="text-[10px] text-slate-400 mt-0.5">Late Units</div>
                   </div>
                 </div>
-              </div>
+              </Link>
 
               {/* Dispatch Logistics */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
+              <Link
+                href="/dispatch"
+                className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 hover:border-blue-500/50 transition block group"
+              >
                 <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2 group-hover:text-blue-300 transition">
                     <Truck className="h-4 w-4 text-blue-400" />
                     <span>Dispatch & Delivery Status</span>
+                    <span className="text-[10px] text-blue-400 font-normal underline ml-2">Open Dispatch &rarr;</span>
                   </h3>
                   <span className="text-xs text-slate-400">{data.dispatch.totalDropsToday} Total Drops</span>
                 </div>
@@ -266,15 +297,19 @@ export default function AdminDashboardPage() {
                     <div className="text-[10px] text-slate-400 mt-0.5">Needs Driver</div>
                   </div>
                 </div>
-              </div>
+              </Link>
             </div>
 
             {/* Section C: Billing Overview */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
+            <Link
+              href="/admin/billing"
+              className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 hover:border-emerald-500/50 transition block group"
+            >
               <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2 group-hover:text-emerald-300 transition">
                   <DollarSign className="h-4 w-4 text-emerald-400" />
                   <span>Corporate Billing & Revenue Snapshot (Integer Cents)</span>
+                  <span className="text-[10px] text-emerald-400 font-normal underline ml-2">Open Billing &rarr;</span>
                 </h3>
                 {data.billing.invoicesWithAdjustmentsCount > 0 && (
                   <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-amber-950 border border-amber-800 text-amber-300 text-xs font-semibold">
@@ -325,13 +360,17 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
 
             {/* Section D: Operational Configuration Health */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-4 flex items-center space-x-2">
+            <Link
+              href="/admin/settings"
+              className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 hover:border-purple-500/50 transition block group"
+            >
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-4 flex items-center space-x-2 group-hover:text-purple-300 transition">
                 <TrendingUp className="h-4 w-4 text-purple-400" />
                 <span>Configuration & Production Rules</span>
+                <span className="text-[10px] text-purple-400 font-normal underline ml-2">Edit Settings &rarr;</span>
               </h3>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
@@ -358,7 +397,7 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
         ) : null}
       </main>

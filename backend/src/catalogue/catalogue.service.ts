@@ -215,7 +215,9 @@ export class CatalogueService {
     const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (!query.includeInactive) {
+    if (query.isActive !== undefined) {
+      where.isActive = query.isActive;
+    } else if (!query.includeInactive) {
       where.isActive = true;
     }
     if (query.temperature) {

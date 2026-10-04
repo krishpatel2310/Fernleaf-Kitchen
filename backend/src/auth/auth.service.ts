@@ -8,6 +8,7 @@ import { UserStatus } from '@prisma/client';
 
 export interface LoginResponse {
   accessToken: string;
+  access_token: string;
   user: AuthenticatedUser;
 }
 
@@ -66,6 +67,7 @@ export class AuthService {
 
     return {
       accessToken,
+      access_token: accessToken,
       user: {
         id: user.id,
         email: user.email,

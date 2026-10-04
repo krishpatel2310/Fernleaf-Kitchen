@@ -13,6 +13,7 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { TransferEmployeeDto } from './dto/transfer-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
+import { BulkImportEmployeesDto } from './dto/bulk-import-employees.dto';
 
 @Controller('employees')
 export class EmployeesController {
@@ -22,6 +23,12 @@ export class EmployeesController {
   @RequirePermissions('employees.read')
   async findAll(@Query() query: QueryEmployeeDto) {
     return this.employeesService.findAll(query);
+  }
+
+  @Post('bulk-import')
+  @RequirePermissions('employees.manage')
+  async bulkImport(@Body() dto: BulkImportEmployeesDto) {
+    return this.employeesService.bulkImport(dto);
   }
 
   @Get(':id')

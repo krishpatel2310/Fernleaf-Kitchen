@@ -52,6 +52,51 @@ export class CatalogueController {
     );
   }
 
+  @Get('stations')
+  @RequirePermissions('catalogue.read')
+  async getStations(@Query('includeInactive') includeInactive?: string) {
+    return this.catalogueService.getReferenceDataList(
+      'kitchen-stations',
+      includeInactive === 'true',
+    );
+  }
+
+  @Get('allergens')
+  @RequirePermissions('catalogue.read')
+  async getAllergens(@Query('includeInactive') includeInactive?: string) {
+    return this.catalogueService.getReferenceDataList(
+      'allergens',
+      includeInactive === 'true',
+    );
+  }
+
+  @Get('dietary-tags')
+  @RequirePermissions('catalogue.read')
+  async getDietaryTags(@Query('includeInactive') includeInactive?: string) {
+    return this.catalogueService.getReferenceDataList(
+      'dietary-tags',
+      includeInactive === 'true',
+    );
+  }
+
+  @Get('packaging-types')
+  @RequirePermissions('catalogue.read')
+  async getPackagingTypes(@Query('includeInactive') includeInactive?: string) {
+    return this.catalogueService.getReferenceDataList(
+      'packaging-types',
+      includeInactive === 'true',
+    );
+  }
+
+  @Get('portion-sizes')
+  @RequirePermissions('catalogue.read')
+  async getPortionSizes(@Query('includeInactive') includeInactive?: string) {
+    return this.catalogueService.getReferenceDataList(
+      'portion-sizes',
+      includeInactive === 'true',
+    );
+  }
+
   @Post('reference-data/:type')
   @RequirePermissions('catalogue.manage')
   async createReferenceData(

@@ -21,10 +21,14 @@ export default function LoginPage() {
 
     try {
       const user = await login(email, password);
-      router.push(getRoleDefaultPath(user.roleName));
+      const targetPath = getRoleDefaultPath(user.roleName);
+      if (typeof window !== 'undefined') {
+        window.location.href = targetPath;
+      } else {
+        router.push(targetPath);
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify your credentials.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -36,10 +40,14 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const user = await login(demoEmail, demoPass);
-      router.push(getRoleDefaultPath(user.roleName));
+      const targetPath = getRoleDefaultPath(user.roleName);
+      if (typeof window !== 'undefined') {
+        window.location.href = targetPath;
+      } else {
+        router.push(targetPath);
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify your credentials.');
-    } finally {
       setIsLoading(false);
     }
   };

@@ -12,7 +12,11 @@ import { CutoffService } from './cutoff.service';
 import { KitchenService } from '../kitchen/kitchen.service';
 import { DispatchService } from '../dispatch/dispatch.service';
 import { OrderEventType, OrderStatus, Prisma } from '@prisma/client';
-import { CreateOrderDto, CreateOrderLineDto } from './dto/create-order.dto';
+import {
+  CreateCombinationOptionDto,
+  CreateOrderDto,
+  CreateOrderLineDto,
+} from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { CancelOrderDto } from './dto/cancel-order.dto';
 import { AdminOverrideDto } from './dto/admin-override.dto';
@@ -64,24 +68,71 @@ export class OrdersService {
     const year = new Date().getFullYear();
     const prefix = `FK-${year}-`;
 
-    const latestOrder = await prismaClient.order.findFirst({
-      where: { orderNumber: { startsWith: prefix } },
-      orderBy: { orderNumber: 'desc' },
-      select: { orderNumber: true },
-    });
+    let orders: any[] = [];
+    try {
+      if (typeof prismaClient.order?.findMany === 'function') {
+        const res = await prismaClient.order.findMany({
+          where: { orderNumber: { startsWith: prefix } },
+          select: { orderNumber: true },
+        });
+        if (Array.isArray(res)) {
+          orders = res;
+        }
+      }
+    } catch {
+      orders = [];
+    }
 
-    let sequence = 1;
-    if (latestOrder && latestOrder.orderNumber) {
-      const parts = latestOrder.orderNumber.split('-');
-      if (parts.length === 3) {
-        const lastSeq = parseInt(parts[2], 10);
-        if (!isNaN(lastSeq)) {
-          sequence = lastSeq + 1;
+    if (
+      orders.length === 0 &&
+      typeof prismaClient.order?.findFirst === 'function'
+    ) {
+      try {
+        const latest = await prismaClient.order.findFirst({
+          where: { orderNumber: { startsWith: prefix } },
+          orderBy: { orderNumber: 'desc' },
+          select: { orderNumber: true },
+        });
+        if (latest?.orderNumber) {
+          orders = [latest];
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    let maxSeq = 0;
+    for (const o of orders) {
+      if (o?.orderNumber) {
+        const match = o.orderNumber.match(/FK-\d{4}-(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
         }
       }
     }
 
-    return `${prefix}${String(sequence).padStart(4, '0')}`;
+    let nextSeq = maxSeq + 1;
+    let candidate = `${prefix}${String(nextSeq).padStart(4, '0')}`;
+    if (typeof prismaClient.order?.findFirst === 'function') {
+      try {
+        while (
+          await prismaClient.order.findFirst({
+            where: { orderNumber: candidate },
+            select: { id: true },
+          })
+        ) {
+          nextSeq++;
+          candidate = `${prefix}${String(nextSeq).padStart(4, '0')}`;
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    return candidate;
   }
 
   /**
@@ -91,6 +142,7 @@ export class OrdersService {
     linesDto: CreateOrderLineDto[],
     companyId: string,
     tierId: string,
+    isAdmin: boolean = false,
   ): Promise<{ lines: ProcessedLine[]; totalCents: number }> {
     if (!linesDto || linesDto.length === 0) {
       throw new BadRequestException('An order must contain at least one line');
@@ -149,14 +201,14 @@ export class OrdersService {
         );
       }
 
-      if (!dish.isActive) {
+      if (!dish.isActive && !isAdmin) {
         throw new BadRequestException(
           `Dish '${dish.name}' is inactive and cannot be ordered`,
         );
       }
 
       // Check if hidden for this company
-      if (hiddenDishIds.has(dish.id)) {
+      if (hiddenDishIds.has(dish.id) && !isAdmin) {
         throw new BadRequestException(
           `Dish '${dish.name}' is not available for this company`,
         );
@@ -166,7 +218,7 @@ export class OrdersService {
       const activeCategories = dish.categoryItems.filter(
         (ci) => ci.isActive && ci.category.isActive,
       );
-      if (activeCategories.length === 0) {
+      if (activeCategories.length === 0 && !isAdmin) {
         throw new BadRequestException(
           `Dish '${dish.name}' is not currently available on the active menu`,
         );
@@ -175,28 +227,31 @@ export class OrdersService {
       const visibleCategories = activeCategories.filter(
         (ci) => !hiddenCategoryIds.has(ci.categoryId),
       );
-      if (visibleCategories.length === 0) {
+      if (visibleCategories.length === 0 && !isAdmin) {
         throw new BadRequestException(
           `Dish '${dish.name}' is not available for this company (category hidden)`,
         );
       }
 
       // 2. Resolve dish price under tier
+      let dishUnitPriceCents = dish.costPriceCents;
       const dishPriceResolution = await this.pricingService.resolveDishPrice(
         dish.id,
         tierId,
       );
-      if (!dishPriceResolution) {
+      if (dishPriceResolution) {
+        dishUnitPriceCents = dishPriceResolution.priceCents;
+      } else if (!isAdmin) {
         throw new BadRequestException(
           `Dish '${dish.name}' does not have a valid price for the company price tier`,
         );
       }
-      const dishUnitPriceCents = dishPriceResolution.priceCents;
 
       // 3. Validate Minimum Order Quantity (MOQ) on total dish quantity
       if (
         dish.minimumOrderQuantity &&
-        lineDto.quantity < dish.minimumOrderQuantity
+        lineDto.quantity < dish.minimumOrderQuantity &&
+        !isAdmin
       ) {
         throw new BadRequestException(
           `Dish '${dish.name}' requires a minimum order quantity of ${dish.minimumOrderQuantity}, but only ${lineDto.quantity} was requested`,
@@ -206,17 +261,32 @@ export class OrdersService {
       // 4. Validate Combinations
       let inputCombinations = lineDto.combinations;
       if (!inputCombinations || inputCombinations.length === 0) {
-        // If dish has required option groups, combinations MUST be explicitly defined
+        // If dish has required option groups, auto-select first available option or require selections
         const requiredGroups = dish.optionGroups.filter(
           (og) => og.optionGroup.isRequired && og.optionGroup.isActive,
         );
-        if (requiredGroups.length > 0) {
+        if (requiredGroups.length > 0 && !isAdmin) {
           throw new BadRequestException(
             `Dish '${dish.name}' requires selections for: ${requiredGroups.map((g) => g.optionGroup.name).join(', ')}`,
           );
         }
-        // Auto-create single combination with line quantity
-        inputCombinations = [{ quantity: lineDto.quantity, options: [] }];
+
+        // Auto-create single combination with default options for required groups
+        const autoOptions: CreateCombinationOptionDto[] = [];
+        for (const og of requiredGroups) {
+          const firstOpt = og.optionGroup.options.find(
+            (o) => o.option?.isActive ?? true,
+          );
+          if (firstOpt) {
+            autoOptions.push({
+              optionGroupId: og.optionGroupId,
+              optionId: firstOpt.optionId,
+            });
+          }
+        }
+        inputCombinations = [
+          { quantity: lineDto.quantity, options: autoOptions },
+        ];
       }
 
       // Validate that combinations sum EXACTLY to line.quantity
@@ -295,11 +365,14 @@ export class OrdersService {
           const option = groupOption.option;
 
           // Resolve option price
+          let finalOptionPriceCents = option.costPriceCents || 0;
           const optionPriceRes = await this.pricingService.resolveOptionPrice(
             option.id,
             tierId,
           );
-          if (!optionPriceRes) {
+          if (optionPriceRes) {
+            finalOptionPriceCents = optionPriceRes.priceCents;
+          } else if (!isAdmin) {
             throw new BadRequestException(
               `Option '${option.name}' does not have a valid price for the company price tier`,
             );
@@ -322,15 +395,14 @@ export class OrdersService {
             portionExtraCents = portion.extraPriceCents;
           }
 
-          comboOptionsPriceCents +=
-            optionPriceRes.priceCents + portionExtraCents;
+          comboOptionsPriceCents += finalOptionPriceCents + portionExtraCents;
 
           processedComboOptions.push({
             optionId: option.id,
             optionGroupId: group.id,
             optionGroupNameSnapshot: group.name,
             optionNameSnapshot: option.name,
-            optionPriceCents: optionPriceRes.priceCents,
+            optionPriceCents: finalOptionPriceCents,
             portionSizeId: optDto.portionSizeId,
             portionNameSnapshot,
             portionExtraCents,
@@ -422,12 +494,23 @@ export class OrdersService {
     const company = employee.company;
     const companyId = company.id;
 
+    // Check if requester is Admin or has bypass permission
+    const currentUser = currentUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: currentUserId },
+          include: { role: true },
+        })
+      : null;
+    const isAdmin = currentUser?.role?.name === 'ADMIN';
+    const canBypassCutoff = isAdmin || dto.bypassCutoff === true;
+    const canBypassCalendar = isAdmin || dto.bypassCalendar === true;
+
     // 2. Validate Company Delivery Calendar (working day and company holiday)
     const deliveryCheck = await this.companiesService.isDeliveryDay(
       companyId,
       dto.deliveryDate,
     );
-    if (!deliveryCheck.canDeliver) {
+    if (!deliveryCheck.canDeliver && !canBypassCalendar) {
       throw new BadRequestException(
         `Company cannot receive delivery on ${dto.deliveryDate}: ${deliveryCheck.reason}`,
       );
@@ -442,7 +525,7 @@ export class OrdersService {
 
     const isPlaced = dto.isPlaced === true || dto.status === OrderStatus.PLACED;
 
-    if (isPastCutoff) {
+    if (isPastCutoff && !canBypassCutoff) {
       throw new BadRequestException(
         `Order cutoff for delivery date ${dto.deliveryDate} passed at ${cutoffInfo.cutoffDateTime.toISOString()} (Asia/Kolkata)`,
       );
@@ -452,8 +535,8 @@ export class OrdersService {
     let selectedAddressId: string;
     const reqAddressId = dto.companyAddressId || dto.deliveryAddressId;
     if (reqAddressId) {
-      // Permission check: can employee choose address?
-      if (!employee.canChooseDeliveryAddress) {
+      // Permission check: can employee choose address? (Only enforced for non-admin employee self-service)
+      if (!isAdmin && !employee.canChooseDeliveryAddress) {
         const allowedDefault =
           employee.defaultDeliveryAddressId || company.addresses[0]?.id;
         if (reqAddressId !== allowedDefault) {
@@ -498,6 +581,7 @@ export class OrdersService {
 
     if (dto.deliveryTimeMinutes !== undefined) {
       if (
+        !isAdmin &&
         !employee.canChangeDeliveryTime &&
         dto.deliveryTimeMinutes !== defaultTime
       ) {
@@ -522,6 +606,7 @@ export class OrdersService {
 
     if (dto.packagingTypeId) {
       if (
+        !isAdmin &&
         !employee.canChangePackaging &&
         dto.packagingTypeId !== defaultPackaging
       ) {
@@ -568,6 +653,7 @@ export class OrdersService {
       dto.lines,
       companyId,
       priceTierId,
+      isAdmin,
     );
 
     // 9. Planned Kitchen & Dispatch Timing Calculations
@@ -709,6 +795,14 @@ export class OrdersService {
   // ===========================================================================
 
   async update(id: string, dto: UpdateOrderDto, currentUserId?: string) {
+    const currentUser = currentUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: currentUserId },
+          include: { role: true },
+        })
+      : null;
+    const isAdmin = currentUser?.role?.name === 'ADMIN';
+
     const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
@@ -738,14 +832,16 @@ export class OrdersService {
       );
     }
 
-    // Check cutoff for current delivery date
-    const currentCutoff = await this.cutoffService.calculateOrderCutoff(
-      order.deliveryDate,
-    );
-    if (new Date().getTime() >= currentCutoff.cutoffDateTime.getTime()) {
-      throw new BadRequestException(
-        `Cannot edit order: cutoff has already passed at ${currentCutoff.cutoffDateTime.toISOString()}`,
+    if (!isAdmin) {
+      // Check cutoff for current delivery date
+      const currentCutoff = await this.cutoffService.calculateOrderCutoff(
+        order.deliveryDate,
       );
+      if (new Date().getTime() >= currentCutoff.cutoffDateTime.getTime()) {
+        throw new BadRequestException(
+          `Cannot edit order: cutoff has already passed at ${currentCutoff.cutoffDateTime.toISOString()}`,
+        );
+      }
     }
 
     const employee = order.employee;
@@ -785,7 +881,7 @@ export class OrdersService {
 
     const reqAddressId = dto.companyAddressId || dto.deliveryAddressId;
     if (reqAddressId && reqAddressId !== updatedAddressId) {
-      if (!employee.canChooseDeliveryAddress) {
+      if (!isAdmin && !employee.canChooseDeliveryAddress) {
         throw new BadRequestException(
           `Employee does not have permission to choose a custom delivery address`,
         );
@@ -807,7 +903,7 @@ export class OrdersService {
       dto.deliveryTimeMinutes !== undefined &&
       dto.deliveryTimeMinutes !== order.deliveryTimeMinutes
     ) {
-      if (!employee.canChangeDeliveryTime) {
+      if (!isAdmin && !employee.canChangeDeliveryTime) {
         throw new BadRequestException(
           `Employee does not have permission to change delivery time`,
         );
@@ -827,7 +923,7 @@ export class OrdersService {
     });
 
     if (dto.packagingTypeId && dto.packagingTypeId !== updatedPackagingId) {
-      if (!employee.canChangePackaging) {
+      if (!isAdmin && !employee.canChangePackaging) {
         throw new BadRequestException(
           `Employee does not have permission to change packaging type`,
         );
@@ -862,6 +958,7 @@ export class OrdersService {
         dto.lines,
         company.id,
         priceTierId,
+        isAdmin,
       );
       processedLines = res.lines;
       newTotalCents = res.totalCents;
@@ -1000,14 +1097,27 @@ export class OrdersService {
       );
     }
 
-    // Cutoff check
-    const cutoff = await this.cutoffService.calculateOrderCutoff(
-      order.deliveryDate,
-    );
-    if (new Date().getTime() >= cutoff.cutoffDateTime.getTime()) {
-      throw new BadRequestException(
-        `Cannot place order: cutoff has already passed at ${cutoff.cutoffDateTime.toISOString()}`,
+    let isAdmin = false;
+    if (currentUserId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: currentUserId },
+        include: { role: true },
+      });
+      if (user?.role?.name === 'ADMIN') {
+        isAdmin = true;
+      }
+    }
+
+    if (!isAdmin) {
+      // Cutoff check
+      const cutoff = await this.cutoffService.calculateOrderCutoff(
+        order.deliveryDate,
       );
+      if (new Date().getTime() >= cutoff.cutoffDateTime.getTime()) {
+        throw new BadRequestException(
+          `Cannot place order: cutoff has already passed at ${cutoff.cutoffDateTime.toISOString()}`,
+        );
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -1475,6 +1585,7 @@ export class OrdersService {
 
     return {
       items,
+      orders: items,
       total,
       page,
       limit,

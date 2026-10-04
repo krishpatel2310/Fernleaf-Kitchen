@@ -135,6 +135,7 @@ describe('Authentication & RBAC Authorization Boundaries', () => {
     });
 
     expect(result.accessToken).toBe('mock-jwt-token');
+    expect(result.access_token).toBe('mock-jwt-token');
     expect(result.user.email).toBe('admin@test.com');
     expect(result.user.roleName).toBe('ADMIN');
     expect(result.user.permissions).toEqual(adminPermissions);

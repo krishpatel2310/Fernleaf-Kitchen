@@ -14,7 +14,8 @@ export interface UserProfile {
 }
 
 export interface LoginResponse {
-  access_token: string;
+  accessToken: string;
+  access_token?: string;
   user: UserProfile;
 }
 
@@ -78,11 +79,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (response.status === 401) {
-    // If unauthorized, clear invalid token
-    setStoredToken(null);
-    setStoredUser(null);
-    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-      window.location.href = '/login';
+    // Only redirect if unauthorized on a protected route, never on login itself
+    if (!path.includes('/auth/login')) {
+      setStoredToken(null);
+      setStoredUser(null);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
   }
 
@@ -111,17 +114,25 @@ export const api = {
   // AUTH
   // ---------------------------------------------------------------------------
   login: async (email: string, password: string): Promise<LoginResponse> => {
-    const data = await request<LoginResponse>('/auth/login', {
+    const data = await request<any>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    setStoredToken(data.access_token);
+    const token = data.accessToken || data.access_token;
+    if (!token) {
+      throw new ApiError(500, 'Authentication token missing in server response');
+    }
+    setStoredToken(token);
     setStoredUser(data.user);
-    return data;
+    return {
+      accessToken: token,
+      access_token: token,
+      user: data.user,
+    };
   },
 
   getProfile: async (): Promise<UserProfile> => {
-    const user = await request<UserProfile>('/auth/profile');
+    const user = await request<UserProfile>('/auth/me');
     setStoredUser(user);
     return user;
   },
@@ -211,7 +222,7 @@ export const api = {
   // ---------------------------------------------------------------------------
   // ORDERS
   // ---------------------------------------------------------------------------
-  getOrders: (params: { page?: number; limit?: number; status?: string; companyId?: string; date?: string } = {}) => {
+  getOrders: async (params: { page?: number; limit?: number; status?: string; companyId?: string; date?: string } = {}) => {
     const sp = new URLSearchParams();
     if (params.page) sp.append('page', String(params.page));
     if (params.limit) sp.append('limit', String(params.limit));
@@ -219,19 +230,48 @@ export const api = {
     if (params.companyId) sp.append('companyId', params.companyId);
     if (params.date) sp.append('deliveryDate', params.date);
     const qs = sp.toString();
-    return request<any>(`/orders${qs ? `?${qs}` : ''}`);
+    const res = await request<any>(`/orders${qs ? `?${qs}` : ''}`);
+    const list = Array.isArray(res) ? res : res?.orders || res?.items || res?.data || [];
+    return {
+      orders: list,
+      items: list,
+      total: res?.total ?? list.length,
+      page: res?.page ?? 1,
+      limit: res?.limit ?? 15,
+      totalPages: res?.totalPages ?? 1,
+    };
   },
 
   getOrderDetail: (id: string) =>
     request<any>(`/orders/${id}`),
 
+  getOrderTimeline: (id: string) =>
+    request<any[]>(`/orders/${id}/timeline`),
+
+  createOrder: (dto: any) =>
+    request<any>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateOrder: (id: string, dto: any) =>
+    request<any>(`/orders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  placeOrder: (id: string) =>
+    request<any>(`/orders/${id}/place`, {
+      method: 'POST',
+    }),
+
   cancelOrder: (id: string, reason?: string) =>
     request<any>(`/orders/${id}/cancel`, {
-      method: 'PUT',
+      method: 'POST',
       body: JSON.stringify({ reason: reason || 'Cancelled from admin panel' }),
     }),
 
-  adminOverrideOrder: (id: string, dto: { deliveryAddressId?: string; deliveryTimeMinutes?: number; packagingTypeId?: string }) =>
+  adminOverrideOrder: (id: string, dto: { deliveryAddressId?: string; companyAddressId?: string; deliveryTimeMinutes?: number; packagingTypeId?: string; note: string }) =>
     request<any>(`/orders/${id}/override`, {
       method: 'POST',
       body: JSON.stringify(dto),
@@ -246,14 +286,23 @@ export const api = {
   // ---------------------------------------------------------------------------
   // BILLING
   // ---------------------------------------------------------------------------
-  getInvoices: () =>
-    request<any>('/billing/invoices'),
+  getInvoices: async () => {
+    const res = await request<any>('/billing/invoices');
+    const list = Array.isArray(res) ? res : res?.data || res?.invoices || [];
+    return {
+      invoices: list,
+      data: list,
+      meta: res?.meta,
+    };
+  },
 
   getInvoiceDetail: (id: string) =>
     request<any>(`/billing/invoices/${id}`),
 
-  getUninvoicedOrders: (companyId?: string) =>
-    request<any[]>(`/billing/uninvoiced-orders${companyId ? `?companyId=${companyId}` : ''}`),
+  getUninvoicedOrders: async (companyId?: string) => {
+    const res = await request<any>(`/billing/uninvoiced-orders${companyId ? `?companyId=${companyId}` : ''}`);
+    return Array.isArray(res) ? res : res?.data || [];
+  },
 
   createInvoice: (companyId: string, orderIds: string[], notes?: string) =>
     request<any>('/billing/invoices', {
@@ -267,14 +316,83 @@ export const api = {
   // ---------------------------------------------------------------------------
   // CATALOGUE & MENU
   // ---------------------------------------------------------------------------
-  getDishes: () =>
-    request<any[]>('/catalogue/dishes'),
+  getDishes: async (query?: { isActive?: boolean; stationId?: string; search?: string; limit?: number }): Promise<any[]> => {
+    const params = new URLSearchParams();
+    if (query?.isActive !== undefined) params.append('isActive', String(query.isActive));
+    if (query?.stationId) params.append('stationId', query.stationId);
+    if (query?.search) params.append('search', query.search);
+    params.append('limit', String(query?.limit || 100));
+    const qs = params.toString();
+    const res = await request<any>(`/catalogue/dishes${qs ? `?${qs}` : ''}`);
+    return Array.isArray(res) ? res : res?.data || [];
+  },
 
-  getOptionGroups: () =>
-    request<any[]>('/catalogue/option-groups'),
+  getDishDetail: (id: string) =>
+    request<any>(`/catalogue/dishes/${id}`),
 
-  getOptions: () =>
-    request<any[]>('/catalogue/options'),
+  createDish: (dto: any) =>
+    request<any>('/catalogue/dishes', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateDish: (id: string, dto: any) =>
+    request<any>(`/catalogue/dishes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  activateDish: (id: string) =>
+    request<any>(`/catalogue/dishes/${id}/activate`, { method: 'POST' }),
+
+  deactivateDish: (id: string) =>
+    request<any>(`/catalogue/dishes/${id}/deactivate`, { method: 'POST' }),
+
+  getOptionGroups: async (): Promise<any[]> => {
+    const res = await request<any>('/catalogue/option-groups');
+    return Array.isArray(res) ? res : res?.data || [];
+  },
+
+  createOptionGroup: (dto: any) =>
+    request<any>('/catalogue/option-groups', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateOptionGroup: (id: string, dto: any) =>
+    request<any>(`/catalogue/option-groups/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  activateOptionGroup: (id: string) =>
+    request<any>(`/catalogue/option-groups/${id}/activate`, { method: 'POST' }),
+
+  deactivateOptionGroup: (id: string) =>
+    request<any>(`/catalogue/option-groups/${id}/deactivate`, { method: 'POST' }),
+
+  getOptions: async (): Promise<any[]> => {
+    const res = await request<any>('/catalogue/options');
+    return Array.isArray(res) ? res : res?.data || [];
+  },
+
+  createOption: (dto: any) =>
+    request<any>('/catalogue/options', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateOption: (id: string, dto: any) =>
+    request<any>(`/catalogue/options/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  activateOption: (id: string) =>
+    request<any>(`/catalogue/options/${id}/activate`, { method: 'POST' }),
+
+  deactivateOption: (id: string) =>
+    request<any>(`/catalogue/options/${id}/deactivate`, { method: 'POST' }),
 
   getKitchenStations: () =>
     request<any[]>('/catalogue/stations'),
@@ -288,8 +406,52 @@ export const api = {
   getPackagingTypes: () =>
     request<any[]>('/catalogue/packaging-types'),
 
-  getMenuCategories: () =>
-    request<any[]>('/menu/categories'),
+  getMenuCategories: (includeSecret: boolean = true) =>
+    request<any[]>(`/menu/categories?includeSecret=${includeSecret}`),
+
+  createCategory: (dto: any) =>
+    request<any>('/menu/categories', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateCategory: (id: string, dto: any) =>
+    request<any>(`/menu/categories/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  addDishToCategory: (categoryId: string, dto: { dishId: string; displayOrder?: number }) =>
+    request<any>(`/menu/categories/${categoryId}/dishes`, {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  removeDishFromCategory: (categoryId: string, dishId: string) =>
+    request<any>(`/menu/categories/${categoryId}/dishes/${dishId}`, {
+      method: 'DELETE',
+    }),
+
+  toggleMenuItemActive: (categoryId: string, dishId: string, isActive: boolean) =>
+    request<any>(`/menu/categories/${categoryId}/dishes/${dishId}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    }),
+
+  getCompanyVisibility: (companyId: string) =>
+    request<any>(`/menu/company-visibility/${companyId}`),
+
+  setCompanyHiddenCategory: (companyId: string, categoryId: string, hide: boolean) =>
+    request<any>(`/menu/company-visibility/${companyId}/category/${categoryId}`, {
+      method: 'POST',
+      body: JSON.stringify({ hide }),
+    }),
+
+  setCompanyHiddenDish: (companyId: string, dishId: string, hide: boolean) =>
+    request<any>(`/menu/company-visibility/${companyId}/dish/${dishId}`, {
+      method: 'POST',
+      body: JSON.stringify({ hide }),
+    }),
 
   getMenuPreview: (employeeId: string, date?: string) =>
     request<any>(`/menu/preview?employeeId=${employeeId}${date ? `&date=${date}` : ''}`),
@@ -297,23 +459,154 @@ export const api = {
   // ---------------------------------------------------------------------------
   // PRICING
   // ---------------------------------------------------------------------------
-  getPriceTiers: () =>
-    request<any[]>('/pricing/tiers'),
+  getPriceTiers: async (): Promise<any[]> => {
+    const res = await request<any>('/pricing/tiers');
+    return Array.isArray(res) ? res : res?.data || [];
+  },
 
   getPriceTierMatrix: (id: string) =>
     request<any>(`/pricing/tiers/${id}/matrix`),
 
+  getMissingPricesForTier: (id: string) =>
+    request<any>(`/pricing/tiers/${id}/missing-prices`),
+
+  createPriceTier: (dto: any) =>
+    request<any>('/pricing/tiers', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updatePriceTier: (id: string, dto: any) =>
+    request<any>(`/pricing/tiers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  setDefaultPriceTier: (id: string) =>
+    request<any>(`/pricing/tiers/${id}/set-default`, { method: 'POST' }),
+
+  bulkUpdateDishPrices: (tierId: string, prices: { dishId: string; priceCents: number }[]) =>
+    request<any>(`/pricing/tiers/${tierId}/dishes`, {
+      method: 'PUT',
+      body: JSON.stringify({ prices }),
+    }),
+
+  bulkUpdateOptionPrices: (tierId: string, prices: { optionId: string; priceCents: number }[]) =>
+    request<any>(`/pricing/tiers/${tierId}/options`, {
+      method: 'PUT',
+      body: JSON.stringify({ prices }),
+    }),
+
   // ---------------------------------------------------------------------------
   // COMPANIES & EMPLOYEES
   // ---------------------------------------------------------------------------
-  getCompanies: () =>
-    request<any[]>('/companies'),
+  getCompanies: async (): Promise<any[]> => {
+    const res = await request<any>('/companies');
+    const list = Array.isArray(res) ? res : res?.data || [];
+    if (!Array.isArray(res) && res?.meta) {
+      (list as any).meta = res.meta;
+    }
+    return list;
+  },
 
   getCompanyDetail: (id: string) =>
     request<any>(`/companies/${id}`),
 
-  getEmployees: (companyId?: string) =>
-    request<any[]>(`/employees${companyId ? `?companyId=${companyId}` : ''}`),
+  createCompany: (dto: any) =>
+    request<any>('/companies', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateCompany: (id: string, dto: any) =>
+    request<any>(`/companies/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  addCompanyDomain: (companyId: string, domain: string) =>
+    request<any>(`/companies/${companyId}/domains`, {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    }),
+
+  removeCompanyDomain: (companyId: string, domainId: string) =>
+    request<any>(`/companies/${companyId}/domains/${domainId}`, {
+      method: 'DELETE',
+    }),
+
+  addCompanyAddress: (companyId: string, dto: any) =>
+    request<any>(`/companies/${companyId}/addresses`, {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateCompanyAddress: (companyId: string, addressId: string, dto: any) =>
+    request<any>(`/companies/${companyId}/addresses/${addressId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  removeCompanyAddress: (companyId: string, addressId: string) =>
+    request<any>(`/companies/${companyId}/addresses/${addressId}`, {
+      method: 'DELETE',
+    }),
+
+  updateCompanyWorkingDay: (companyId: string, dto: { dayOfWeek: string; isDeliveryDay: boolean }) =>
+    request<any>(`/companies/${companyId}/working-days`, {
+      method: 'PUT',
+      body: JSON.stringify(dto),
+    }),
+
+  addCompanyHoliday: (companyId: string, dto: { name: string; date: string }) =>
+    request<any>(`/companies/${companyId}/holidays`, {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  removeCompanyHoliday: (companyId: string, holidayId: string) =>
+    request<any>(`/companies/${companyId}/holidays/${holidayId}`, {
+      method: 'DELETE',
+    }),
+
+  getEmployees: async (companyId?: string): Promise<any[]> => {
+    const res = await request<any>(`/employees${companyId ? `?companyId=${companyId}` : ''}`);
+    const list = Array.isArray(res) ? res : res?.data || [];
+    if (!Array.isArray(res) && res?.meta) {
+      (list as any).meta = res.meta;
+    }
+    return list;
+  },
+
+  createEmployee: (dto: any) =>
+    request<any>('/employees', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  updateEmployee: (id: string, dto: any) =>
+    request<any>(`/employees/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    }),
+
+  transferEmployee: (id: string, dto: { targetCompanyId: string; preservePreferences?: boolean }) =>
+    request<any>(`/employees/${id}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
+
+  activateEmployee: (id: string) =>
+    request<any>(`/employees/${id}/activate`, { method: 'POST' }),
+
+  deactivateEmployee: (id: string) =>
+    request<any>(`/employees/${id}/deactivate`, { method: 'POST' }),
+
+  bulkImportEmployees: (dto: { companyId: string; rows?: any[]; csvText?: string }) =>
+    request<any>('/employees/bulk-import', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    }),
 
   // ---------------------------------------------------------------------------
   // SETTINGS

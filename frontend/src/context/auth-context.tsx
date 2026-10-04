@@ -46,7 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const res = await api.login(email, pass);
-      setToken(res.access_token);
+      const token = res.accessToken || (res as any).access_token;
+      setToken(token);
       setUser(res.user);
       return res.user;
     } finally {

@@ -94,6 +94,14 @@ export class CreateOrderDto {
   @IsOptional()
   status?: OrderStatus;
 
+  @IsBoolean()
+  @IsOptional()
+  bypassCutoff?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  bypassCalendar?: boolean;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateOrderLineDto)

@@ -40,6 +40,11 @@ export class QueryDishDto {
   @Type(() => Boolean)
   @IsOptional()
   includeInactive?: boolean = false;
+
+  @IsBoolean()
+  @Type(() => Boolean)
+  @IsOptional()
+  isActive?: boolean;
 }
 
 export class QueryOptionDto {

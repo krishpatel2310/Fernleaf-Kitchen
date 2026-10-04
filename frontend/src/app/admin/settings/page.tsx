@@ -12,7 +12,19 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  Truck,
+  Check,
 } from 'lucide-react';
+
+const DAYS_OF_WEEK = [
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY',
+];
 
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<any>(null);
@@ -20,11 +32,13 @@ export default function AdminSettingsPage() {
   const [workingDays, setWorkingDays] = useState<any[]>([]);
   const [cutoffTime, setCutoffTime] = useState('16:00');
   const [cutoffDays, setCutoffDays] = useState(2);
+  const [dispatchBuffer, setDispatchBuffer] = useState(30);
   const [newHolidayName, setNewHolidayName] = useState('');
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [cutoffPreview, setCutoffPreview] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingDays, setIsUpdatingDays] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const fetchSettings = async () => {
@@ -38,8 +52,9 @@ export default function AdminSettingsPage() {
         api.getCutoffPreview(),
       ]);
       setSettings(setRes);
-      setCutoffTime(setRes.cutoffTime || '16:00');
-      setCutoffDays(setRes.cutoffWorkingDaysCount || 2);
+      setCutoffTime(setRes?.cutoffTime || '16:00');
+      setCutoffDays(setRes?.cutoffWorkingDaysCount || 2);
+      setDispatchBuffer(setRes?.dispatchBufferMinutes || 30);
       setHolidays(holRes || []);
       setWorkingDays(daysRes || []);
       setCutoffPreview(prevRes);
@@ -62,6 +77,7 @@ export default function AdminSettingsPage() {
       await api.updateKitchenSettings({
         cutoffTime,
         cutoffWorkingDaysCount: Number(cutoffDays),
+        dispatchBufferMinutes: Number(dispatchBuffer),
       });
       setMessage({ text: 'Kitchen settings updated successfully!', type: 'success' });
       await fetchSettings();
@@ -69,6 +85,39 @@ export default function AdminSettingsPage() {
       setMessage({ text: err.message || 'Failed to update settings', type: 'error' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleToggleWorkingDay = async (day: string) => {
+    setIsUpdatingDays(true);
+    setMessage(null);
+
+    // Compute updated working days
+    const currentDayConfig = workingDays.find((d) => d.dayOfWeek === day);
+    const newIsWorking = currentDayConfig ? !currentDayConfig.isWorking : false;
+
+    // Check that at least one day remains active
+    const nextWorkingDays = DAYS_OF_WEEK.map((d) => {
+      if (d === day) return { dayOfWeek: d, isWorking: newIsWorking };
+      const existing = workingDays.find((item) => item.dayOfWeek === d);
+      return { dayOfWeek: d, isWorking: existing ? existing.isWorking : true };
+    });
+
+    const activeCount = nextWorkingDays.filter((d) => d.isWorking).length;
+    if (activeCount === 0) {
+      setMessage({ text: 'At least one kitchen working day must remain active', type: 'error' });
+      setIsUpdatingDays(false);
+      return;
+    }
+
+    try {
+      await api.updateKitchenWorkingDays(nextWorkingDays);
+      setMessage({ text: `Kitchen working schedule updated`, type: 'success' });
+      await fetchSettings();
+    } catch (err: any) {
+      setMessage({ text: err.message || 'Failed to update working days', type: 'error' });
+    } finally {
+      setIsUpdatingDays(false);
     }
   };
 
@@ -110,7 +159,7 @@ export default function AdminSettingsPage() {
               <span>Kitchen Operational Settings</span>
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Configure order cutoff time, lead working days, kitchen working calendars, and annual holidays dynamically.
+              Configure order cutoff times, working-day lead time, central kitchen working schedules, dispatch buffers, and kitchen holidays.
             </p>
           </div>
 
@@ -135,12 +184,13 @@ export default function AdminSettingsPage() {
         )}
 
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left: Cutoff Parameters & Preview */}
+          {/* Left Column: Cutoff Parameters & Working Days */}
           <div className="space-y-6">
+            {/* Cutoff Rules Card */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2 mb-4">
                 <Clock className="h-4 w-4 text-emerald-400" />
-                <span>Cutoff Rules</span>
+                <span>Cutoff Rules & Lead Time</span>
               </h2>
 
               <form onSubmit={handleSaveSettings} className="space-y-4">
@@ -155,7 +205,7 @@ export default function AdminSettingsPage() {
                     onChange={(e) => setCutoffTime(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
-                  <span className="text-[11px] text-slate-500 mt-1 block">Default is 16:00 (4:00 PM IST)</span>
+                  <span className="text-[11px] text-slate-500 mt-1 block">Default cutoff time is 16:00 (4:00 PM IST)</span>
                 </div>
 
                 <div>
@@ -172,7 +222,25 @@ export default function AdminSettingsPage() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Number of active kitchen working days required before delivery date.
+                    Number of active kitchen working days required before delivery date (standard: 2).
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                    Dispatch Buffer Before Delivery (Minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="180"
+                    required
+                    value={dispatchBuffer}
+                    onChange={(e) => setDispatchBuffer(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">
+                    Standard duration in minutes orders must leave kitchen prior to delivery time.
                   </span>
                 </div>
 
@@ -181,12 +249,64 @@ export default function AdminSettingsPage() {
                   disabled={isSaving}
                   className="py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition disabled:opacity-50"
                 >
-                  {isSaving ? 'Updating...' : 'Save Cutoff Parameters'}
+                  {isSaving ? 'Updating...' : 'Save Operational Settings'}
                 </button>
               </form>
             </div>
 
-            {/* Live Cutoff Preview */}
+            {/* Central Kitchen Working Days */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2">
+                  <Calendar className="h-4 w-4 text-sky-400" />
+                  <span>Central Kitchen Working Days</span>
+                </h2>
+                {isUpdatingDays && (
+                  <span className="text-[11px] text-sky-400 flex items-center space-x-1">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    <span>Saving...</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mb-4">
+                Toggle days the central production kitchen operates. Days marked off are skipped when calculating order cutoffs.
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {DAYS_OF_WEEK.map((day) => {
+                  const dayEntry = workingDays.find((d) => d.dayOfWeek === day);
+                  const isWorking = dayEntry ? dayEntry.isWorking : true;
+
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      disabled={isUpdatingDays}
+                      onClick={() => handleToggleWorkingDay(day)}
+                      className={`p-3 rounded-xl border text-xs font-semibold flex flex-col items-center justify-center transition ${
+                        isWorking
+                          ? 'bg-emerald-950/40 border-emerald-700/80 text-emerald-300 hover:bg-emerald-900/50'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-400'
+                      }`}
+                    >
+                      <span className="uppercase text-[11px] tracking-wide">{day.slice(0, 3)}</span>
+                      <div className="mt-1 flex items-center space-x-1 text-[10px]">
+                        {isWorking ? (
+                          <>
+                            <Check className="h-3 w-3 text-emerald-400" />
+                            <span>Working</span>
+                          </>
+                        ) : (
+                          <span>Off</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Live Cutoff Engine Preview */}
             {cutoffPreview && (
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
@@ -214,12 +334,15 @@ export default function AdminSettingsPage() {
             )}
           </div>
 
-          {/* Right: Kitchen Holidays */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6">
+          {/* Right Column: Kitchen Holidays */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 h-fit">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center space-x-2 mb-4">
               <Calendar className="h-4 w-4 text-purple-400" />
               <span>Kitchen Holidays</span>
             </h2>
+            <p className="text-xs text-slate-400 mb-4">
+              Scheduled kitchen holidays are treated as non-working days for order cutoff computations.
+            </p>
 
             {/* Add Holiday Form */}
             <form onSubmit={handleAddHoliday} className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6">
@@ -248,7 +371,7 @@ export default function AdminSettingsPage() {
             </form>
 
             {/* Holidays List */}
-            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
               {holidays.length === 0 ? (
                 <div className="text-xs text-slate-500 text-center py-6">No kitchen holidays scheduled.</div>
               ) : (

@@ -31,4 +31,11 @@ export class AuthController {
   ): Promise<AuthenticatedUser> {
     return this.authService.getMe(user.id);
   }
+
+  @Get('profile')
+  async getProfile(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<AuthenticatedUser> {
+    return this.authService.getMe(user.id);
+  }
 }

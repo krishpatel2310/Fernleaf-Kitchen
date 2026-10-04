@@ -36,8 +36,12 @@ export class SettingsController {
 
   @Get('kitchen/cutoff-preview')
   @RequirePermissions('settings.read')
-  async getCutoffPreview(@Query('deliveryDate') deliveryDate: string) {
-    return this.cutoffService.calculateOrderCutoff(deliveryDate);
+  async getCutoffPreview(
+    @Query('deliveryDate') deliveryDate?: string,
+    @Query('date') date?: string,
+  ) {
+    const targetDate = deliveryDate || date || new Date();
+    return this.cutoffService.calculateOrderCutoff(targetDate);
   }
 
   @Patch('kitchen')

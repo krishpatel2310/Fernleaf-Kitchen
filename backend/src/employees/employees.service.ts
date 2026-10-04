@@ -9,6 +9,7 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { TransferEmployeeDto } from './dto/transfer-employee.dto';
 import { QueryEmployeeDto } from './dto/query-employee.dto';
+import { BulkImportEmployeesDto } from './dto/bulk-import-employees.dto';
 
 @Injectable()
 export class EmployeesService {
@@ -449,5 +450,147 @@ export class EmployeesService {
       where: { id },
       data: { isActive },
     });
+  }
+
+  async bulkImport(dto: BulkImportEmployeesDto) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: dto.companyId },
+      include: { domains: true },
+    });
+    if (!company) {
+      throw new NotFoundException(
+        `Company with ID '${dto.companyId}' not found`,
+      );
+    }
+
+    const companyDomains = new Set(
+      company.domains.map((d) => d.domain.toLowerCase()),
+    );
+
+    // Parse rows from array or csvText
+    const rowsToProcess = dto.rows || [];
+    if (!rowsToProcess.length && dto.csvText) {
+      const lines = dto.csvText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      // Skip header if first line looks like header
+      const startIndex = lines[0]?.toLowerCase().includes('email') ? 1 : 0;
+      for (let i = startIndex; i < lines.length; i++) {
+        const parts = lines[i].split(',').map((p) => p.trim());
+        if (parts.length >= 2) {
+          rowsToProcess.push({
+            firstName: parts[0],
+            lastName: parts[1] || undefined,
+            email: parts[2] || parts[1], // fallback if only 2 columns: name, email
+            phone: parts[3] || undefined,
+          });
+        }
+      }
+    }
+
+    const results: Array<{
+      row: number;
+      email: string;
+      status: 'IMPORTED' | 'FAILED';
+      employeeId?: string;
+      error?: string;
+    }> = [];
+
+    let importedCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < rowsToProcess.length; i++) {
+      const row = rowsToProcess[i];
+      const rowNum = i + 1;
+      const cleanEmail = (row.email || '').trim().toLowerCase();
+      const cleanFirstName = (row.firstName || '').trim();
+
+      if (!cleanFirstName) {
+        failedCount++;
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'FAILED',
+          error: 'First name is required',
+        });
+        continue;
+      }
+
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        failedCount++;
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'FAILED',
+          error: 'Valid email is required',
+        });
+        continue;
+      }
+
+      const domain = cleanEmail.split('@')[1];
+      if (!companyDomains.has(domain)) {
+        failedCount++;
+        const allowed = Array.from(companyDomains).join(', ');
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'FAILED',
+          error: `Domain '@${domain}' does not belong to company '${company.name}'. Allowed: ${allowed}`,
+        });
+        continue;
+      }
+
+      const existing = await this.prisma.employee.findUnique({
+        where: { email: cleanEmail },
+      });
+      if (existing) {
+        failedCount++;
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'FAILED',
+          error: `Employee with email '${cleanEmail}' already exists`,
+        });
+        continue;
+      }
+
+      try {
+        const created = await this.prisma.employee.create({
+          data: {
+            companyId: dto.companyId,
+            firstName: cleanFirstName,
+            lastName: (row.lastName || '').trim() || '',
+            email: cleanEmail,
+            phone: (row.phone || '').trim() || null,
+            isActive: true,
+          },
+        });
+        importedCount++;
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'IMPORTED',
+          employeeId: created.id,
+        });
+      } catch (err: any) {
+        failedCount++;
+        results.push({
+          row: rowNum,
+          email: cleanEmail,
+          status: 'FAILED',
+          error: err.message || 'Database error during insertion',
+        });
+      }
+    }
+
+    return {
+      companyId: dto.companyId,
+      companyName: company.name,
+      totalRows: rowsToProcess.length,
+      importedCount,
+      failedCount,
+      results,
+    };
   }
 }

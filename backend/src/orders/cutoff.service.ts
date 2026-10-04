@@ -36,7 +36,10 @@ export class CutoffService {
   /**
    * Normalizes an input (string or Date) into a midnight-UTC calendar Date (YYYY-MM-DD).
    */
-  normalizeCalendarDate(dateInput: Date | string): Date {
+  normalizeCalendarDate(dateInput?: Date | string): Date {
+    if (!dateInput) {
+      dateInput = new Date();
+    }
     if (typeof dateInput === 'string') {
       const parts = dateInput.split('T')[0].split('-').map(Number);
       if (
