@@ -77,6 +77,16 @@ export class KitchenController {
     return this.kitchenService.finishUnit(id, user?.id);
   }
 
+  @Post('units/:id/complete')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('kitchen.finish')
+  async completeUnit(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.kitchenService.finishUnit(id, user?.id);
+  }
+
   /**
    * Admin force-complete: completes all remaining kitchen units on a confirmed order.
    */

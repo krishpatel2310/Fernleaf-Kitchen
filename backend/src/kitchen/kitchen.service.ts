@@ -52,6 +52,18 @@ export function formatMinutesToTime(minutes: number): string {
 }
 
 /**
+ * Formats a Date into "HH:mm" in Asia/Kolkata timezone.
+ */
+export function formatKolkataTime(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+/**
  * Normalizes input date string into UTC midnight calendar date.
  */
 export function parseKolkataCalendarDate(dateInput: Date | string): Date {
@@ -296,6 +308,7 @@ export class KitchenService {
                 dishSkuSnapshot: true,
                 dishUnitPriceCents: true,
                 quantity: true,
+                dish: { select: { temperature: true } },
               },
             },
             options: {
@@ -406,12 +419,29 @@ export class KitchenService {
         },
         stationId: u.stationId,
         station: u.station ? { id: u.station.id, name: u.station.name } : null,
+        stationName: u.station?.name ?? null,
+        dishName: u.orderCombination.orderLine.dishNameSnapshot,
+        dishSku: u.orderCombination.orderLine.dishSkuSnapshot,
+        temperature: u.orderCombination.orderLine.dish?.temperature ?? 'HOT',
+        quantity: u.orderCombination.quantity,
+        options: u.orderCombination.options.map((opt) => ({
+          groupName: opt.optionGroupNameSnapshot,
+          optionName: opt.optionNameSnapshot,
+          portionName: opt.portionNameSnapshot,
+          extraCents: opt.portionExtraCents,
+        })),
         status: u.status,
         startedAt: u.startedAt,
         finishedAt: u.completedAt,
         completedAt: u.completedAt,
         plannedDispatchReadyAt: plannedTimings.plannedDispatchReadyAt,
         plannedKitchenReadyAt: plannedTimings.plannedKitchenReadyAt,
+        plannedDispatchReadyFormatted: formatKolkataTime(
+          plannedTimings.plannedDispatchReadyAt,
+        ),
+        plannedKitchenReadyFormatted: formatKolkataTime(
+          plannedTimings.plannedKitchenReadyAt,
+        ),
         orderKitchenStartedAt: u.order.kitchenStartedAt,
         orderKitchenReadyAt: u.order.kitchenReadyAt,
         timingStatus: timing.timingStatus,
@@ -458,6 +488,7 @@ export class KitchenService {
                 dishSkuSnapshot: true,
                 dishUnitPriceCents: true,
                 quantity: true,
+                dish: { select: { temperature: true } },
               },
             },
             options: {
@@ -550,12 +581,29 @@ export class KitchenService {
       station: unit.station
         ? { id: unit.station.id, name: unit.station.name }
         : null,
+      stationName: unit.station?.name ?? null,
+      dishName: unit.orderCombination.orderLine.dishNameSnapshot,
+      dishSku: unit.orderCombination.orderLine.dishSkuSnapshot,
+      temperature: unit.orderCombination.orderLine.dish?.temperature ?? 'HOT',
+      quantity: unit.orderCombination.quantity,
+      options: unit.orderCombination.options.map((opt) => ({
+        groupName: opt.optionGroupNameSnapshot,
+        optionName: opt.optionNameSnapshot,
+        portionName: opt.portionNameSnapshot,
+        extraCents: opt.portionExtraCents,
+      })),
       status: unit.status,
       startedAt: unit.startedAt,
       finishedAt: unit.completedAt,
       completedAt: unit.completedAt,
       plannedDispatchReadyAt: plannedTimings.plannedDispatchReadyAt,
       plannedKitchenReadyAt: plannedTimings.plannedKitchenReadyAt,
+      plannedDispatchReadyFormatted: formatKolkataTime(
+        plannedTimings.plannedDispatchReadyAt,
+      ),
+      plannedKitchenReadyFormatted: formatKolkataTime(
+        plannedTimings.plannedKitchenReadyAt,
+      ),
       orderKitchenStartedAt: unit.order.kitchenStartedAt,
       orderKitchenReadyAt: unit.order.kitchenReadyAt,
       timingStatus: timing.timingStatus,
@@ -635,22 +683,9 @@ export class KitchenService {
         });
       }
 
-      return tx.kitchenUnit.findUnique({
-        where: { id },
-        include: {
-          station: { select: { id: true, name: true } },
-          order: {
-            select: {
-              id: true,
-              orderNumber: true,
-              status: true,
-              kitchenStartedAt: true,
-              kitchenReadyAt: true,
-            },
-          },
-        },
-      });
     });
+
+    return this.findOneUnit(id, now);
   }
 
   /**
@@ -766,22 +801,9 @@ export class KitchenService {
         }
       }
 
-      return tx.kitchenUnit.findUnique({
-        where: { id },
-        include: {
-          station: { select: { id: true, name: true } },
-          order: {
-            select: {
-              id: true,
-              orderNumber: true,
-              status: true,
-              kitchenStartedAt: true,
-              kitchenReadyAt: true,
-            },
-          },
-        },
-      });
     });
+
+    return this.findOneUnit(id, now);
   }
 
   /**

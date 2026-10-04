@@ -129,6 +129,7 @@ export default function KitchenBoardPage() {
                 className="bg-transparent text-white focus:outline-none cursor-pointer"
               >
                 <option value="" className="bg-slate-900 text-white">All Stations</option>
+                <option value="unassigned" className="bg-slate-900 text-amber-300">Unassigned Station</option>
                 {stations.map((st) => (
                   <option key={st.id} value={st.id} className="bg-slate-900 text-white">
                     {st.name}
@@ -286,18 +287,18 @@ export default function KitchenBoardPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="text-base font-bold text-white tracking-tight">
-                            {unit.quantity}× {unit.dishName}
+                            {unit.quantity ?? unit.combination?.quantity ?? 1}× {unit.dishName || unit.dish?.name}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5">
-                            SKU: {unit.dishSku} • {unit.temperature}
+                            SKU: {unit.dishSku || unit.dish?.sku} • {unit.temperature || unit.dish?.temperature || 'HOT'}
                           </div>
                         </div>
                       </div>
 
                       {/* Options / Customizations */}
-                      {unit.options && unit.options.length > 0 && (
+                      {(unit.options || unit.combination?.options) && (unit.options || unit.combination?.options).length > 0 && (
                         <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-1">
-                          {unit.options.map((opt: any, idx: number) => (
+                          {(unit.options || unit.combination?.options).map((opt: any, idx: number) => (
                             <div key={idx} className="text-xs text-slate-300 flex items-center justify-between">
                               <span className="text-slate-400">{opt.groupName}:</span>
                               <span className="font-medium text-emerald-400">{opt.optionName}</span>
@@ -309,8 +310,12 @@ export default function KitchenBoardPage() {
                       {/* Order & Timing Details */}
                       <div className="mt-4 pt-3 border-t border-slate-800/60 text-xs text-slate-400 space-y-1">
                         <div className="flex justify-between">
-                          <span>Order ID:</span>
-                          <span className="font-mono text-slate-300">{unit.orderId}</span>
+                          <span>Order:</span>
+                          <span className="font-mono text-slate-200 font-semibold">{unit.orderNumber || unit.orderId}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Company:</span>
+                          <span className="text-slate-300">{unit.company?.name || 'Client'}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Delivery Time:</span>
@@ -318,7 +323,7 @@ export default function KitchenBoardPage() {
                         </div>
                         <div className="flex justify-between">
                           <span>Planned Ready:</span>
-                          <span className="text-slate-300">{unit.plannedKitchenReadyFormatted}</span>
+                          <span className="text-amber-300 font-semibold">{unit.plannedKitchenReadyFormatted || '--:--'}</span>
                         </div>
                       </div>
                     </div>

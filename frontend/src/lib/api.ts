@@ -3,7 +3,42 @@
  * Connects exclusively over HTTP to the NestJS backend API.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+/**
+ * Resolves the target URL for an API path.
+ *
+ * 1. Server-side runtime (functions / SSR):
+ *    Uses the Vercel internal service binding `BACKEND_URL` if present,
+ *    targeting the backend service directly via Vercel's internal network.
+ * 2. Custom override:
+ *    Uses `process.env.NEXT_PUBLIC_API_URL` if provided (e.g. for standalone local development).
+ * 3. Default (client-side in browser / same-origin rewrites):
+ *    Routes to `/api/*`, which Vercel's top-level rewrite directs to the backend service.
+ */
+export function getApiUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  // Server-side runtime: use Vercel service binding if available
+  if (typeof window === 'undefined' && process.env.BACKEND_URL) {
+    const apiPath = cleanPath.startsWith('/api/') || cleanPath === '/api'
+      ? cleanPath.replace(/^\//, '')
+      : `api${cleanPath}`;
+    return new URL(apiPath, process.env.BACKEND_URL.endsWith('/') ? process.env.BACKEND_URL : `${process.env.BACKEND_URL}/`).toString();
+  }
+
+  // Explicit public API URL override
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    const base = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+    if (base.endsWith('/api') && (cleanPath.startsWith('/api/') || cleanPath === '/api')) {
+      return `${base}${cleanPath.slice(4)}`;
+    }
+    return `${base}${cleanPath}`;
+  }
+
+  // Default: relative public route handled by Vercel top-level rewrites (/api/(.*) -> backend)
+  return cleanPath.startsWith('/api/') || cleanPath === '/api'
+    ? cleanPath
+    : `/api${cleanPath}`;
+}
 
 export interface UserProfile {
   id: string;
@@ -72,7 +107,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const url = `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+  const url = getApiUrl(path);
   const response = await fetch(url, {
     ...options,
     headers,
@@ -174,8 +209,11 @@ export const api = {
   startKitchenUnit: (unitId: string) =>
     request<any>(`/kitchen/units/${unitId}/start`, { method: 'POST' }),
 
+  finishKitchenUnit: (unitId: string) =>
+    request<any>(`/kitchen/units/${unitId}/finish`, { method: 'POST' }),
+
   completeKitchenUnit: (unitId: string) =>
-    request<any>(`/kitchen/units/${unitId}/complete`, { method: 'POST' }),
+    request<any>(`/kitchen/units/${unitId}/finish`, { method: 'POST' }),
 
   forceCompleteOrder: (orderId: string) =>
     request<any>(`/kitchen/orders/${orderId}/force-complete`, { method: 'POST' }),
