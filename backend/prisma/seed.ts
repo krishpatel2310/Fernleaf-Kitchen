@@ -280,6 +280,21 @@ export async function main() {
     });
   }
 
+  // Kitchen Holidays
+  const kitchenHolidays = [
+    { date: new Date('2026-05-01T00:00:00.000Z'), name: 'May Day (Kitchen Deep Clean)' },
+    { date: new Date('2026-11-10T00:00:00.000Z'), name: 'Diwali Kitchen Holiday' },
+  ];
+
+  for (const kh of kitchenHolidays) {
+    await prisma.kitchenHoliday.upsert({
+      where: { date: kh.date },
+      update: { name: kh.name },
+      create: { date: kh.date, name: kh.name },
+    });
+  }
+
+
   // Default price tier
   await prisma.priceTier.upsert({
     where: { name: 'Standard' },

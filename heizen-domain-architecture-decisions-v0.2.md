@@ -859,5 +859,71 @@ Calculated server-side relative to current time ($T_{now}$) and `plannedKitchenR
   - `KITCHEN`, `DISPATCH`, and `DRIVER` roles have no billing permissions and are rejected with 403 Forbidden.
   - Unauthenticated requests are rejected with 401 Unauthorized.
 
+## 31. Phase 10: Operational Settings & Kitchen Calendar Decisions
+
+### 31.1 Authoritative Settings Model
+- The operational rules governing the commercial kitchen are configurable by administrators without code changes or direct database manipulation.
+- Source of truth models in PostgreSQL:
+  - `KitchenSetting`: Authoritative singleton record (`id: "default"`) containing `cutoffTimeMinutes` (default 960 / 16:00), `cutoffWorkingDaysCount` (default 2), `kitchenTimezone` (`"Asia/Kolkata"`), `dispatchBufferMinutes` (30), and `defaultPackagingBufferMinutes` (60).
+  - `KitchenWorkingDay`: Full 7-day configuration (`MONDAY` through `SUNDAY`) tracking `isWorking: boolean`.
+  - `KitchenHoliday`: Distinct calendar dates (`@unique @db.Date`) on which the kitchen does not operate, with descriptive names.
+- Configuration is exposed and updated via the Admin Settings REST API under `/api/settings/kitchen`.
+
+### 31.2 Kitchen Calendar vs. Company Calendar Decoupling
+- **Architectural Separation**: The platform maintains two distinct calendar domains that serve completely different business functions:
+  1. **Kitchen Production Calendar** (`KitchenWorkingDay`, `KitchenHoliday`): Governs kitchen production days, kitchen holidays, and order cutoff calculations. Kitchen non-working days and kitchen holidays step the order cutoff backwards.
+  2. **Company Delivery Calendar** (`CompanyWorkingDay`, `CompanyHoliday`): Governs whether a specific client organization can accept meal deliveries on a given date.
+- **Strict Independence**:
+  - Company holidays and company non-working days govern company delivery eligibility, but **NEVER** shift or alter the kitchen order cutoff.
+  - Kitchen holidays and kitchen non-working days shift the order cutoff, but do not alter client delivery schedules.
+  - Both calendars operate independently without cross-contamination.
+
+### 31.3 Configurable Working Days
+- Weekday operations are managed via `KitchenWorkingDay`.
+- Default schedule: Monday through Friday active (`isWorking: true`), Saturday and Sunday inactive (`isWorking: false`).
+- **Validation Invariant**: At least one kitchen working day must remain enabled across the week. Requests that would result in 0 active working days, invalid day-of-week enums, or duplicate weekday specifications within a payload are rejected with HTTP 400 Bad Request.
+
+### 31.4 Configurable Kitchen Holidays
+- Kitchen holidays represent specific dates when commercial food production does not take place (e.g., facility deep cleaning, electrical upgrades, statutory closures).
+- Modeled in `KitchenHoliday` with a database-enforced unique constraint on `date`.
+- Managed independently via:
+  - `GET /api/settings/kitchen/holidays`: Lists configured holidays ordered chronologically.
+  - `POST /api/settings/kitchen/holidays`: Adds a new holiday date (`YYYY-MM-DD`). Rejects duplicate dates with HTTP 409 Conflict and invalid/non-existent calendar dates with HTTP 400 Bad Request.
+  - `DELETE /api/settings/kitchen/holidays/:id`: Removes a holiday by record CUID or `YYYY-MM-DD` date string.
+
+### 31.5 Configurable Cutoff Time & Lead Time
+- **Cutoff Time**:
+  - Validated server-side as 24-hour `HH:mm` format string (`00:00` to `23:59`).
+  - Stored internally as integer minutes from midnight (`0` to `1439`).
+  - Read APIs return both human-readable `cutoffTime: "16:00"` and integer `cutoffTimeMinutes: 960`.
+- **Working-Day Lead Time**:
+  - Configurable integer specifying how many prior kitchen working days before delivery the cutoff occurs.
+  - Enforced as a positive integer ($\ge 1$, $\le 30$). Non-integer, zero, or negative inputs are rejected with HTTP 400 Bad Request.
+
+### 31.6 Timezone Standardization
+- The operational timezone for all commercial kitchen calculations is standardized to `Asia/Kolkata` (UTC+05:30).
+- Cutoff timestamps are converted deterministically using explicit minute-of-day offsets rather than host-system clock functions (`new Date().getHours()`), ensuring invariant behavior across diverse deployment operating systems.
+
+### 31.7 Cutoff Engine Integration & Dynamic Consumption
+- **Real Application Logic Integration**: `CutoffService.calculateOrderCutoff` and `OrdersService.processCutoffs` dynamically query the persisted settings, working days, and holidays from PostgreSQL on every execution.
+- **Immediate Effect Without Stale Caching**: Operational settings are intentionally evaluated dynamically against PostgreSQL rather than cached indefinitely in process memory. Any administrative update to cutoff time, lead time, working days, or holidays takes effect immediately for all subsequent cutoff evaluations, order creation validations, order placement checks, and batch cutoff runs.
+- **Cutoff Preview Endpoint**: `GET /api/settings/kitchen/cutoff-preview?deliveryDate=YYYY-MM-DD` provides a transparent, auditable preview of the exact calculated cutoff date and timestamp for any calendar date based on current operational settings.
+
+### 31.8 Idempotent Batch Cutoff Processing
+- Manual or scheduled cutoff processing (`OrdersService.processCutoffs` via `POST /api/orders/process-cutoffs`) evaluates candidate orders against the current persisted settings.
+- Orders past cutoff transition idempotently:
+  - `PLACED` $\rightarrow$ `CONFIRMED`
+  - `DRAFT` $\rightarrow$ `CANCELLED`
+- Repeated executions against the same state are idempotent, causing zero state churn, zero duplicate timeline events, and preserving historical timestamps.
+
+### 31.9 Historical Order Preservation
+- Operational settings updates apply to future calculations and workflows.
+- In accordance with auditability and historical fidelity requirements, settings updates **never** retroactively modify historical order data:
+  - Historical order delivery snapshots remain unchanged.
+  - Historical order prices and invoice snapshots remain immutable.
+  - Completed kitchen station actual timestamps (`startedAt`, `completedAt`, `kitchenStartedAt`, `kitchenReadyAt`) remain untouched.
+  - Existing delivery drops and delivery records remain intact.
+
+
 
 
